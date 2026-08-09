@@ -3,6 +3,7 @@
 
 #include "types.h"
 
+
 void draw_frame(struct app_context *ctx);
 
 #endif

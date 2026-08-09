@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+
 #include "basics.h"
 
 #include <stdio.h>
@@ -30,7 +31,9 @@ unsigned int checkIfRunning() {
             }
         }
     }
+#ifdef DEBUG
     printf("check for single instance - passed\n");
+#endif
     return 0;
 }
 
@@ -38,7 +41,9 @@ unsigned int checkIfRunning() {
 
 inline void zombieProtect() {
     signal(SIGCHLD, SIG_IGN);
+#ifdef DEBUG
     printf("zombieprotection - passed\n");
+#endif
 }
 
 
@@ -55,17 +60,18 @@ inline void showHelp(char *name) {
 
 
 
-unsigned int optHandling( int argc, char **argv ) {
+unsigned int optHandling( int argc, char **argv, struct app_context *ctx) {
     while (1) {
         int opt = 0;
         int option_index = 0;
         static struct option long_options[] = {
             { "help", no_argument, 0, 'h'},
             { "version", no_argument, 0, 'v'},
+            { "font", required_argument, 0, 'f'},
             { 0, 0, 0, 0},
         };
 
-        opt = getopt_long (argc, argv, "hv", long_options, &option_index);
+        opt = getopt_long (argc, argv, "hvf", long_options, &option_index);
 
         if (opt == -1) return 1;
 
@@ -76,8 +82,13 @@ unsigned int optHandling( int argc, char **argv ) {
             case 'v':
                 showVersion(argv[0], "b0.1");
                 return 1;
+            case 'f':
+                ctx->font=optarg;
+                return 1;
         }
     }
+#ifdef DEBUG
     printf("opthandling - passed ");
-    return 0;
+#endif
+        return 0;
 }
