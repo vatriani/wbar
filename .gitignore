@@ -56,4 +56,4 @@ dkms.conf
 
 wlr-layer-shell-unstable-v1*
 xdg-shell*
-wlauncher
+wbar
