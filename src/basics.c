@@ -83,7 +83,7 @@ unsigned int optHandling( int argc, char **argv, struct app_context *ctx) {
                 showVersion(argv[0], "b0.1");
                 return 1;
             case 'f':
-                ctx->font=optarg;
+                strcpy(ctx->font, optarg);
                 return 1;
         }
     }

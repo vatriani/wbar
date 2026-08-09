@@ -41,7 +41,6 @@ static uint32_t setup(struct app_context *ctx) {
     wl_registry_add_listener(ctx->registry, &registry_listener, ctx);
     wl_display_roundtrip(ctx->display);
 
-    // FIX 3: Erst JETZT, wo der Seat garantiert gebunden ist, den Listener anhängen!
     if (ctx->seat) {
         wl_seat_add_listener(ctx->seat, &seat_listener, ctx);
     }
@@ -61,19 +60,9 @@ static uint32_t setup(struct app_context *ctx) {
 
     uint32_t anchors = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     zwlr_layer_surface_v1_set_anchor(ctx->layer_surface, anchors);
-
-    // WICHTIG: Die Größe initial auf 0 (Breite) und 16 (Höhe) setzen
     zwlr_layer_surface_v1_set_size(ctx->layer_surface, 0, ctx->height);
-
-    // FIX 1: Die exklusive Zone muss exakt der Höhe (16) entsprechen!
-    // Das signalisiert Hyprland, dass dieses Fenster ein Panel ist und Klicks trotz Stufe 0 durchlässt.
     zwlr_layer_surface_v1_set_exclusive_zone(ctx->layer_surface, ctx->height);
-
-    // FIX 2: Interaktivität zwingend auf 0 (False) setzen!
-    // Dadurch wird die Maus NIEMALS gefangen. Klicks funktionieren über den Pointer trotzdem,
-    // weil Hyprland die exklusive Zone oben als Panel-Klickbereich freigibt.
     zwlr_layer_surface_v1_set_keyboard_interactivity(ctx->layer_surface, 0);
-
     zwlr_layer_surface_v1_add_listener(ctx->layer_surface, &layer_surface_listener, ctx);
 
     wl_surface_commit(ctx->surface);
@@ -118,15 +107,11 @@ int main(int argc, char **argv) {
 
     char *active_reply = query_hyprland_ipc("activeworkspace");
     if (active_reply) {
-        // Da die Antwort im JSON-Format kommt (z.B. {"id":2,"name":"2"}),
-        // suchen wir intelligent nach dem Schlüssel "id": oder "name":"
+
         char *id_pos = strstr(active_reply, "\"id\":");
         if (id_pos) {
-            id_pos += 5; // Springe hinter das '"id":'
-            // Falls dort ein Leerzeichen ist, überspringen
+            id_pos += 5;
             while (*id_pos == ' ') id_pos++;
-
-            // Die gefundene ID-Ziffer in deinen active_workspace-String kopieren
             int idx = 0;
             while (isdigit((unsigned char)id_pos[idx]) && idx < 10) {
                 ctx->active_workspace[idx] = id_pos[idx];
@@ -134,25 +119,19 @@ int main(int argc, char **argv) {
             }
             ctx->active_workspace[idx] = '\0';
         } else {
-            // Fallback: Falls die API flach antwortet (reine Zahl), direkt kopieren
             strncpy(ctx->active_workspace, active_reply, 10);
-            // Eventuelle Newlines am Ende abschneiden
             ctx->active_workspace[strcspn(ctx->active_workspace, "\r\n")] = '\0';
         }
 
-        free(active_reply); // IPC-Puffer sauber freigeben
+        free(active_reply);
     }
 
-    // Falls die Abfrage fehlschlug, setzen wir eine sichere "1" als Fallback
-    if (ctx->active_workspace[0] == '\0') {
-        strcpy(ctx->active_workspace, "1");
-    }
+    if (ctx->active_workspace[0] == '\0') strcpy(ctx->active_workspace, "1");
 
     if (!optHandling(argc, argv, ctx)) return 0;
 
     char socket_path[512] = {0};
 
-    // Warte-Schleife für den Pfad
     while (!get_socket_path(socket_path, sizeof(socket_path))) sleep(1);
 
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -161,9 +140,8 @@ int main(int argc, char **argv) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char));
 
-    // Verbindung zum Hyprland Event-Socket herstellen
     while (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == -1) sleep(1);
 
     struct pollfd fds[2];
@@ -291,7 +269,7 @@ int main(int argc, char **argv) {
                 break;
             }
 
-            ipc_buffer[len] = '\0'; // String zwingend terminieren
+            ipc_buffer[len] = '\0';
             int state_changed = 0;
 
             char *line_saveptr = NULL;
@@ -325,7 +303,7 @@ int main(int argc, char **argv) {
 
                                 for (unsigned short int i = 0; i < ctx->workspace_count; ++i) {
                                     if (ctx->workspaces[i] == target_ws) {
-                                        ctx->workspace_windows[i]++;
+                                        ++ctx->workspace_windows[i];
                                         found = 1;
                                         state_changed = 1;
                                         break;
@@ -334,7 +312,7 @@ int main(int argc, char **argv) {
                                 if (!found && ctx->workspace_count < 32) {
                                     ctx->workspaces[ctx->workspace_count] = target_ws;
                                     ctx->workspace_windows[ctx->workspace_count] = 1;
-                                    ctx->workspace_count++;
+                                    ++ctx->workspace_count;
                                     state_changed = 1;
                                 }
                             }

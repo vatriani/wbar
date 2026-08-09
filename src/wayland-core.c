@@ -87,7 +87,6 @@ void fetch_hyprland_colors(struct app_context *ctx) {
         return;
     }
 
-    // FIX: we_wordv[0] statt we_words[0] verwenden
     FILE *file = fopen(exp_result.we_wordv[0], "r");
     wordfree(&exp_result);
 
@@ -96,13 +95,11 @@ void fetch_hyprland_colors(struct app_context *ctx) {
         return;
     }
 
-    char line[512]; // Stack-Schutz aktiv
+    char line[512];
 
     while (fgets(line, sizeof(line), file)) {
-        // Kommentare oder leere Zeilen überspringen
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
 
-        // 2. Ziel-Variable identifizieren anhand deiner exakten current.conf Keywords
         int is_bg = (strstr(line, "$background ") == line || strstr(line, "$base ") == line);
         int is_accent = (strstr(line, "$primary ") == line || strstr(line, "$accent ") == line);
         int is_fg = (strstr(line, "$text ") == line || strstr(line, "$foreground ") == line);
