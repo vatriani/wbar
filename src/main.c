@@ -21,29 +21,25 @@
 
 
 
-static uint32_t setup(struct app_context *ctx) {
+static uint32_t setup_ctx(struct app_context *ctx) {
     ctx->running = 1;
     ctx->width = 0;
     ctx->height = 16;
     ctx->configured = 0;
-    ctx->pending_workspace_change = 0;
     ctx->active_workspace = calloc(1024, sizeof(char));
     ctx->active_app = calloc(1024, sizeof(char));
     ctx->font = calloc(1024, sizeof(char));
-    if (ctx->font) {
-        strcpy((char *)ctx->font, "DejaVu Sans 12");
-    }
 
+    if (ctx->font) strcpy((char *)ctx->font, "DejaVu Sans 12");
     ctx->display = wl_display_connect(NULL);
+
     if (!ctx->display) return 1;
 
     ctx->registry = wl_display_get_registry(ctx->display);
     wl_registry_add_listener(ctx->registry, &registry_listener, ctx);
     wl_display_roundtrip(ctx->display);
 
-    if (ctx->seat) {
-        wl_seat_add_listener(ctx->seat, &seat_listener, ctx);
-    }
+    if (ctx->seat) wl_seat_add_listener(ctx->seat, &seat_listener, ctx);
 
     wl_display_roundtrip(ctx->display);
 
@@ -54,29 +50,33 @@ static uint32_t setup(struct app_context *ctx) {
     }
 
     ctx->surface = wl_compositor_create_surface(ctx->compositor);
-    ctx->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        ctx->layer_shell, ctx->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_TOP, "wbar"
-    );
+    ctx->layer_surface = zwlr_layer_shell_v1_get_layer_surface(ctx->layer_shell,
+            ctx->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_TOP,"wbar");
 
-    uint32_t anchors = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    uint32_t anchors = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
     zwlr_layer_surface_v1_set_anchor(ctx->layer_surface, anchors);
     zwlr_layer_surface_v1_set_size(ctx->layer_surface, 0, ctx->height);
     zwlr_layer_surface_v1_set_exclusive_zone(ctx->layer_surface, ctx->height);
     zwlr_layer_surface_v1_set_keyboard_interactivity(ctx->layer_surface, 0);
-    zwlr_layer_surface_v1_add_listener(ctx->layer_surface, &layer_surface_listener, ctx);
+    zwlr_layer_surface_v1_add_listener(ctx->layer_surface,
+            &layer_surface_listener, ctx);
 
     wl_surface_commit(ctx->surface);
     wl_display_flush(ctx->display);
+
     return 0;
 }
 
 
 
-static void destroy(struct app_context *ctx) {
+static void cleanup(struct app_context *ctx) {
     if (ctx->surface) {
         wl_surface_attach(ctx->surface, NULL, 0, 0);
         wl_surface_commit(ctx->surface);
     }
+
     wl_display_flush(ctx->display);
 
     if (ctx->display)       wl_display_roundtrip(ctx->display);
@@ -86,76 +86,14 @@ static void destroy(struct app_context *ctx) {
     if (ctx->buffer)        wl_buffer_destroy(ctx->buffer);
     if (ctx->display)       wl_display_disconnect(ctx->display);
 
-    free(ctx->active_workspace);
-    free(ctx->active_app);
-    free(ctx->font);
+    if (ctx->active_workspace) free(ctx->active_workspace);
+    if (ctx->active_app)       free(ctx->active_app);
+    if (ctx->font)             free(ctx->font);
 }
 
 
 
-int main(int argc, char **argv) {
-    struct app_context stack_ctx;
-    register struct app_context *ctx = &stack_ctx;
-    memset(ctx, 0, sizeof(struct app_context));
-
-    if (checkIfRunning()) return 0;
-    zombieProtect();
-
-    if(setup(ctx)) return 0;
-
-    fetch_hyprland_colors(ctx);
-
-    char *active_reply = query_hyprland_ipc("activeworkspace");
-    if (active_reply) {
-
-        char *id_pos = strstr(active_reply, "\"id\":");
-        if (id_pos) {
-            id_pos += 5;
-            while (*id_pos == ' ') id_pos++;
-            int idx = 0;
-            while (isdigit((unsigned char)id_pos[idx]) && idx < 10) {
-                ctx->active_workspace[idx] = id_pos[idx];
-                idx++;
-            }
-            ctx->active_workspace[idx] = '\0';
-        } else {
-            strncpy(ctx->active_workspace, active_reply, 10);
-            ctx->active_workspace[strcspn(ctx->active_workspace, "\r\n")] = '\0';
-        }
-
-        free(active_reply);
-    }
-
-    if (ctx->active_workspace[0] == '\0') strcpy(ctx->active_workspace, "1");
-
-    if (!optHandling(argc, argv, ctx)) return 0;
-
-    char socket_path[512] = {0};
-
-    while (!get_socket_path(socket_path, sizeof(socket_path))) sleep(1);
-
-    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (sock < 0) return 1;
-
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char));
-
-    while (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == -1) sleep(1);
-
-    struct pollfd fds[2];
-    fds[0].fd = wl_display_get_fd(ctx->display);
-    fds[0].events = POLLIN;
-    fds[1].fd = sock;
-    fds[1].events = POLLIN;
-
-    static char ipc_buffer[16384];
-    int initial_draw_done = 0;
-
-    wl_display_flush(ctx->display);
-
-    // init workspace status
+void initial_hyprland_query(struct app_context *ctx) {
     char *json_data = query_hyprland_ipc("workspaces");
     ctx->workspace_count = 0;
     memset(ctx->workspaces, 0, sizeof(ctx->workspaces));
@@ -163,7 +101,8 @@ int main(int argc, char **argv) {
 
     if (json_data) {
         char *ptr = json_data;
-        while ((ptr = strstr(ptr, "\"id\":")) != NULL && ctx->workspace_count < 32) {
+        while ((ptr = strstr(ptr, "\"id\":")) != NULL &&
+                ctx->workspace_count < 32) {
             int ws_id = 0;
             int windows_count = 0;
 
@@ -174,37 +113,102 @@ int main(int argc, char **argv) {
                     sscanf(win_ptr, "\"windows\": %d", &windows_count);
                 }
                 ctx->workspace_windows[ctx->workspace_count] = windows_count;
-                ctx->workspace_count++;
+                ++ctx->workspace_count;
             }
             ptr += 5;
         }
         free(json_data);
+        json_data = NULL;
     }
 
+    json_data = query_hyprland_ipc("activeworkspace");
+    if (json_data) {
+        char *id_pos = strstr(json_data, "\"id\":");
+        if (id_pos) {
+            id_pos += 5;
+            while (*id_pos == ' ') ++id_pos;
+            int idx = 0;
+            while (isdigit((unsigned char)id_pos[idx]) && idx < 10) {
+                ctx->active_workspace[idx] = id_pos[idx];
+                ++idx;
+            }
+            ctx->active_workspace[idx] = '\0';
+        } else {
+            strncpy(ctx->active_workspace, json_data, 10);
+            ctx->active_workspace[strcspn(ctx->active_workspace, "\r\n")] = '\0';
+        }
+        free(json_data);
+        json_data = NULL;
+    }
 
+    // fallback for some previous error
     if (ctx->workspace_count == 0) {
         ctx->workspaces[0] = 1;
         ctx->workspace_windows[0] = 0;
         ctx->workspace_count = 1;
-        strcpy(ctx->active_workspace, "1");
     }
+}
 
+
+
+int create_hyprland_socket(int *sock) {
+    char socket_path[512] = {0};
+    int tmp_sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    int count = 0;
+    const int max_retries = 5;
+
+    while (!get_socket_path(socket_path, sizeof(socket_path)) && count <= max_retries) {
+        sleep(1);
+        ++count;
+    }
+    if (tmp_sock < 0 || count == max_retries) return 1;
+
+    count = 0;
+    strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char));
+    while (connect(tmp_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1 && count <= max_retries) {
+        sleep(1);
+        ++count;
+    }
+    if (count == max_retries) return 1;
+
+    *sock = tmp_sock;
+    return 0;
+}
+
+
+
+int main(int argc, char **argv) {
+    int hyprland_sock = 0;
+    struct app_context stack_ctx;
+    struct pollfd fds[2];
+    static char ipc_buffer[16384];
+    int initial_draw_done = 0;
+    struct app_context *ctx = &stack_ctx;
+    memset(ctx, 0, sizeof(struct app_context));
+
+    if (checkIfRunning()) return 0;
+    zombieProtect();
+    if (setup_ctx(ctx)) return 0;
+    fetch_hyprland_colors(ctx);
+    if (!optHandling(argc, argv, ctx)) return 0;
+    create_hyprland_socket(&hyprland_sock);
+    initial_hyprland_query(ctx);
+
+    fds[0].fd = wl_display_get_fd(ctx->display);
+    fds[0].events = POLLIN;
+    fds[1].fd = hyprland_sock;
+    fds[1].events = POLLIN;
 #ifdef DEBUG
     printf("init done. starting event-loop\n");
 #endif
     fflush(stdout);
 
-    while (!ctx->configured && ctx->running) {
-        if (wl_display_roundtrip(ctx->display) < 0) {
-            ctx->running = 0;
-            break;
-        }
-    }
-
-    initial_draw_done = 1;
-
+    // main program loop
     while (ctx->running) {
-
+        if (!ctx->running) break;
         // 1: Wayland-Handshake
         while (wl_display_prepare_read(ctx->display) != 0) {
             if (wl_display_dispatch_pending(ctx->display) < 0) {
@@ -212,7 +216,6 @@ int main(int argc, char **argv) {
                 break;
             }
         }
-        if (!ctx->running) break;
 
         if (wl_display_flush(ctx->display) < 0) {
             wl_display_cancel_read(ctx->display);
@@ -233,18 +236,12 @@ int main(int argc, char **argv) {
             break;
         }
         if (ret == 0) {
-            wl_display_cancel_read(ctx->display); // Angekündigte Leseabsicht sauber verwerfen
-
-            // Deine vorbereiteten Funktionen ausführen und im Context sichern
+            wl_display_cancel_read(ctx->display);
             get_iso_time(ctx->sys_time, sizeof(ctx->sys_time));
             get_ram_usage(ctx->sys_ram, sizeof(ctx->sys_ram));
             get_battery_info(ctx->sys_bat, sizeof(ctx->sys_bat));
             ctx->sys_cpu = get_cpu_load();
-
-            // Frame mit den neuen Werten aktualisieren
-            if (initial_draw_done) {
-                draw_frame(ctx);
-            }
+            if (initial_draw_done) draw_frame(ctx);
             continue; // Direkt zum nächsten Schleifendurchlauf springen
         }
 
@@ -254,16 +251,13 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "error at reading wayland events.\n");
                 break;
             }
-            if (wl_display_dispatch_pending(ctx->display) < 0) {
-                break;
-            }
-        } else {
+            if (wl_display_dispatch_pending(ctx->display) < 0) break;
+        } else
             wl_display_cancel_read(ctx->display);
-        }
 
         // 4: dynamic desktop-tracking
         if (fds[1].revents & POLLIN) {
-            ssize_t len = recv(sock, ipc_buffer, sizeof(ipc_buffer) - 1, 0);
+            ssize_t len = recv(hyprland_sock, ipc_buffer, sizeof(ipc_buffer) - 1, 0);
             if (len <= 0) {
                 fprintf(stderr, "loosing connection to hyprland.\n");
                 break;
@@ -294,7 +288,7 @@ int main(int argc, char **argv) {
                             ctx->active_app[strlen(data) < 1023 ? strlen(data) : 1023] = '\0';
                             state_changed = 1;
                         }
-                        // open app window
+                        // open app window event
                         else if (strstr(line, "openwindow>>") == line) {
                             char *ws_start = strchr(line, ',');
                             if (ws_start) {
@@ -317,7 +311,7 @@ int main(int argc, char **argv) {
                                 }
                             }
                         }
-                        // movetoworkspace
+                        // movetoworkspace event
                         else if (strstr(line, "movewindowv2>>") == line) {
                             char *ws_start = strchr(line, ',');
                             if (ws_start) {
@@ -325,7 +319,7 @@ int main(int argc, char **argv) {
                                 int found = 0;
                                 for (unsigned short int i = 0; i < ctx->workspace_count; ++i) {
                                     if (ctx->workspaces[i] == target_ws) {
-                                        ctx->workspace_windows[i]++;
+                                        ++ctx->workspace_windows[i];
                                         found = 1;
                                         break;
                                     }
@@ -339,13 +333,19 @@ int main(int argc, char **argv) {
                             }
                         }
                         // E. Hard-Refresh via JSON
-                        else if (strstr(line, "closewindow>>") == line || strstr(line, "destroyworkspace") == line || strstr(line, "createworkspace") == line) {
+                        else if (strstr(line, "closewindow>>") == line ||
+                                 strstr(line, "destroyworkspace") == line ||
+                                  strstr(line, "createworkspace") == line) {
                             char *uj = query_hyprland_ipc("workspaces");
+
                             if (uj) {
                                 char *p = uj;
                                 int c = 0;
+
                                 while ((p = strstr(p, "\"id\":")) != NULL && c < 32) {
-                                    int id = 0; int win = 0;
+                                    int id = 0;
+                                    int win = 0;
+
                                     if (sscanf(p, "\"id\": %d", &id) == 1) {
                                         ctx->workspaces[c] = id;
                                         char *w_p = strstr(p, "\"windows\":");
@@ -364,9 +364,11 @@ int main(int argc, char **argv) {
                 line = strtok_r(NULL, "\n", &line_saveptr);
             }
 
+            // triggers rendering when something changing or in initial draw
             if (state_changed && initial_draw_done) {
 #ifdef DEBUG
-                printf("actual frame. Workspace=%s, App=%s\n", ctx->active_workspace, ctx->active_app);
+                printf("actual frame Workspace=%s, App=%s\n",
+                        ctx->active_workspace, ctx->active_app);
 #endif
                 fflush(stdout);
                 draw_frame(ctx);
@@ -379,8 +381,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    close(sock);
-    destroy(ctx);
+    close(hyprland_sock);
+    cleanup(ctx);
 
     return 0;
 }

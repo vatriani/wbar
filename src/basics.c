@@ -16,6 +16,7 @@
 
 unsigned int checkIfRunning() {
     int instance_sock = socket(AF_UNIX, SOCK_STREAM, 0);
+
     if (instance_sock >= 0) {
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -60,7 +61,7 @@ inline void showHelp(char *name) {
 
 
 
-unsigned int optHandling( int argc, char **argv, struct app_context *ctx) {
+unsigned int optHandling(int argc, char **argv, struct app_context *ctx) {
     while (1) {
         int opt = 0;
         int option_index = 0;
@@ -71,7 +72,7 @@ unsigned int optHandling( int argc, char **argv, struct app_context *ctx) {
             { 0, 0, 0, 0},
         };
 
-        opt = getopt_long (argc, argv, "hvf", long_options, &option_index);
+        opt = getopt_long(argc, argv, "hvf", long_options, &option_index);
 
         if (opt == -1) return 1;
 
@@ -88,7 +89,7 @@ unsigned int optHandling( int argc, char **argv, struct app_context *ctx) {
         }
     }
 #ifdef DEBUG
-    printf("opthandling - passed ");
+    printf("opt handling - passed ");
 #endif
-        return 0;
+    return 0;
 }

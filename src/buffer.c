@@ -116,8 +116,6 @@ void draw_frame(struct app_context *ctx) {
 
         pango_layout_set_text(layout, item, -1);
         pango_layout_get_pixel_size(layout, &text_width, &text_height);
-        ctx->workspace_positions[i] = current_x;
-        ctx->workspace_widths[i] = text_width;
         int is_active = (ctx->active_workspace && strcmp(ctx->active_workspace, id_str) == 0);
 
         if (is_active) {

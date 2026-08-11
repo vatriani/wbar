@@ -72,16 +72,14 @@ const struct wl_registry_listener registry_listener = {
 
 
 void fetch_hyprland_colors(struct app_context *ctx) {
-    // 1. Sichere Standardwerte setzen, falls die Datei fehlt
+    // setting some fallback values
     ctx->bg_r = 0.117; ctx->bg_g = 0.117; ctx->bg_b = 0.180;
     ctx->accent_r = 0.321; ctx->accent_g = 0.443; ctx->accent_b = 0.654;
     ctx->fg_r = 0.9; ctx->fg_g = 0.9; ctx->fg_b = 0.9;
 
     const char *conf_path = "~/.config/hypr/scheme/current.conf";
     wordexp_t exp_result;
-    if (wordexp(conf_path, &exp_result, 0) != 0) {
-        return;
-    }
+    if (wordexp(conf_path, &exp_result, 0) != 0) return;
     if (exp_result.we_wordc == 0) {
         wordfree(&exp_result);
         return;
@@ -91,7 +89,7 @@ void fetch_hyprland_colors(struct app_context *ctx) {
     wordfree(&exp_result);
 
     if (!file) {
-        fprintf(stderr, "[wbar] Warnung: Konnte scheme/current.conf nicht öffnen. Nutze Defaults.\n");
+        fprintf(stderr, "[wbar] Warn: cannot read scheme/current.conf . using fallbacks.\n");
         return;
     }
 
@@ -111,10 +109,8 @@ void fetch_hyprland_colors(struct app_context *ctx) {
         if (!eq) continue;
 
         char *hex_start = eq + 1;
-        // Führende Leerzeichen hinter dem '=' überspringen
-        while (*hex_start == ' ' || *hex_start == '\t') {
-            hex_start++;
-        }
+        // Führende Leerzeichen hinter dem '=' überspringe
+        while (*hex_start == ' ' || *hex_start == '\t') ++hex_start;
 
         // 4. Rohen 6-stelligen Hex-Wert einlesen
         unsigned int hex_val = 0;
@@ -138,12 +134,13 @@ void fetch_hyprland_colors(struct app_context *ctx) {
 
     fclose(file);
 #ifdef DEBUG
-    printf("[wbar] Farben erfolgreich aus current.conf extrahiert!\n");
+    printf("[wbar] colors extracted from current.conf\n");
     printf("[wbar] -> BG:(%.2f, %.2f, %.2f) Accent:(%.2f, %.2f, %.2f) FG:(%.2f, %.2f, %.2f)\n",
            ctx->bg_r, ctx->bg_g, ctx->bg_b, ctx->accent_r, ctx->accent_g, ctx->accent_b, ctx->fg_r, ctx->fg_g, ctx->fg_b);
 #endif
     fflush(stdout);
 }
+
 
 
 
