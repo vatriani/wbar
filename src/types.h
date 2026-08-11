@@ -1,7 +1,23 @@
+/**
+ *  @file types.h
+ *  @brief Defines our context struct.
+ *  @author N. Neumann
+ *  @version 0.1
+ *  @date 2026
+ *  @copyright GPLv3
+ */
 #ifndef TYPES_H
 #define TYPES_H
 
 #define _GNU_SOURCE
+
+
+
+struct colors {
+    double r;
+    double g;
+    double b;
+};
 
 
 
@@ -17,13 +33,6 @@ struct app_context {
     struct zwlr_layer_surface_v1  *layer_surface;
     struct wl_buffer              *buffer;
     struct wl_pointer             *pointer;
-
-    int                            click_x;
-    int                            click_y;
-    int                            workspace_positions[32];
-    int                            workspace_widths[32];
-    int                            mouse_over_bar;
-    int                            pending_workspace_change;
 
     int                            workspaces[32];
     int                            workspace_windows[32];

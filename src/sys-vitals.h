@@ -1,3 +1,12 @@
+/**
+ *  @file sys-vitals.h
+ *  @brief Defines some functions to encapsulate fetching systemvitals.
+ *  @author N. Neumann
+ *  @version 0.1
+ *  @date 2026
+ *  @copyright GPLv3
+ */
+
 #ifndef SYS_VITALS_H
 #define SYS_VITALS_H
 

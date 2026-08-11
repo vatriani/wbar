@@ -1,3 +1,12 @@
+/**
+ *  @file window.h
+ *  @brief Defines some functions to encapsulate basic window drawing.
+ *  @author N. Neumann
+ *  @version 0.1
+ *  @date 2026
+ *  @copyright GPLv3
+ */
+
 #ifndef WINDOW_H
 #define WINDOW_H
 

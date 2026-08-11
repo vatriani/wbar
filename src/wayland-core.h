@@ -1,3 +1,11 @@
+/**
+ *  @file wayland-core.h
+ *  @brief Defines some functions to encapsulate wayland connection.
+ *  @author N. Neumann
+ *  @version 0.1
+ *  @date 2026
+ *  @copyright GPLv3
+ */
 #ifndef WAYLAND_CORE_H
 #define WAYLAND_CORE_H
 
