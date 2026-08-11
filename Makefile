@@ -36,10 +36,10 @@ $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) -o $(TARGET) $(LIBS)
 
 clean:
-	rm -f $(TARGET) src/wlr-layer-shell-unstable-v1.* src/xdg-shell.*
+	rm -f $(TARGET) src/wlr-layer* src/xdg-shell* src/*.o
 
 .PHONY: all clean
 
 install: $(TARGET)
 	cp $(TARGET) /usr/bin/$(TARGET)
-	chmod go+rx /usr/bin/$(TARGET)
+	chmod 0777 /usr/bin/$(TARGET)
