@@ -43,3 +43,6 @@ clean:
 install: $(TARGET)
 	cp $(TARGET) /usr/bin/$(TARGET)
 	chmod 0777 /usr/bin/$(TARGET)
+
+uninstall:
+	rm /usr/bin/$(TARGET)
