@@ -21,8 +21,8 @@ unsigned int checkIfRunning() {
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
         addr.sun_family = AF_UNIX;
-
-        strncpy(addr.sun_path + 1, "wbar_single_instance_lock", sizeof(addr.sun_path) - 2);
+        strncpy(addr.sun_path + 1, "wbar_single_instance_lock",
+                sizeof(addr.sun_path) - 2);
 
         if (bind(instance_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
             if (errno == EADDRINUSE) {
@@ -32,9 +32,6 @@ unsigned int checkIfRunning() {
             }
         }
     }
-#ifdef DEBUG
-    printf("check for single instance - passed\n");
-#endif
     return 0;
 }
 
@@ -42,9 +39,6 @@ unsigned int checkIfRunning() {
 
 inline void zombieProtect() {
     signal(SIGCHLD, SIG_IGN);
-#ifdef DEBUG
-    printf("zombieprotection - passed\n");
-#endif
 }
 
 
@@ -56,7 +50,8 @@ inline void showVersion(char *name, char *version) {
 
 
 inline void showHelp(char *name) {
-    printf("usage: %s [OPTIONS]...\n\n -h  shows help\n -v  shows version\n", name);
+    printf("usage: %s [OPTIONS]...\n \
+            \n -h  shows help\n -v  shows version\n", name);
 }
 
 
@@ -73,8 +68,7 @@ unsigned int optHandling(int argc, char **argv, struct app_context *ctx) {
         };
 
         opt = getopt_long(argc, argv, "hvf", long_options, &option_index);
-
-        if (opt == -1) return 1;
+        if (opt == -1) return 0;
 
         switch (opt) {
             case 'h':
@@ -85,11 +79,8 @@ unsigned int optHandling(int argc, char **argv, struct app_context *ctx) {
                 return 1;
             case 'f':
                 strcpy(ctx->font, optarg);
-                return 1;
+                break;
         }
     }
-#ifdef DEBUG
-    printf("opt handling - passed ");
-#endif
     return 0;
 }

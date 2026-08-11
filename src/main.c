@@ -3,6 +3,7 @@
 #include "basics.h"
 #include "types.h"
 #include "wayland-core.h"
+#include "hyprland.h"
 #include "window.h"
 #include "buffer.h"
 #include "sys-vitals.h"
@@ -20,163 +21,9 @@
 #include <ctype.h>
 
 
-
-static uint32_t setup_ctx(struct app_context *ctx) {
-    ctx->running = 1;
-    ctx->width = 0;
-    ctx->height = 16;
-    ctx->configured = 0;
-    ctx->active_workspace = calloc(1024, sizeof(char));
-    ctx->active_app = calloc(1024, sizeof(char));
-    ctx->font = calloc(1024, sizeof(char));
-
-    if (ctx->font) strcpy((char *)ctx->font, "DejaVu Sans 12");
-    ctx->display = wl_display_connect(NULL);
-
-    if (!ctx->display) return 1;
-
-    ctx->registry = wl_display_get_registry(ctx->display);
-    wl_registry_add_listener(ctx->registry, &registry_listener, ctx);
-    wl_display_roundtrip(ctx->display);
-
-    if (ctx->seat) wl_seat_add_listener(ctx->seat, &seat_listener, ctx);
-
-    wl_display_roundtrip(ctx->display);
-
-    if (!ctx->compositor || !ctx->layer_shell || !ctx->shm) {
-        fprintf(stderr, "Err: critical Wayland handler missing.\n");
-        wl_display_disconnect(ctx->display);
-        return 1;
-    }
-
-    ctx->surface = wl_compositor_create_surface(ctx->compositor);
-    ctx->layer_surface = zwlr_layer_shell_v1_get_layer_surface(ctx->layer_shell,
-            ctx->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_TOP,"wbar");
-
-    uint32_t anchors = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
-            ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
-            ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    zwlr_layer_surface_v1_set_anchor(ctx->layer_surface, anchors);
-    zwlr_layer_surface_v1_set_size(ctx->layer_surface, 0, ctx->height);
-    zwlr_layer_surface_v1_set_exclusive_zone(ctx->layer_surface, ctx->height);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(ctx->layer_surface, 0);
-    zwlr_layer_surface_v1_add_listener(ctx->layer_surface,
-            &layer_surface_listener, ctx);
-
-    wl_surface_commit(ctx->surface);
-    wl_display_flush(ctx->display);
-
-    return 0;
-}
-
-
-
-static void cleanup(struct app_context *ctx) {
-    if (ctx->surface) {
-        wl_surface_attach(ctx->surface, NULL, 0, 0);
-        wl_surface_commit(ctx->surface);
-    }
-
-    wl_display_flush(ctx->display);
-
-    if (ctx->display)       wl_display_roundtrip(ctx->display);
-    if (ctx->seat)          wl_seat_destroy(ctx->seat);
-    if (ctx->layer_surface) zwlr_layer_surface_v1_destroy(ctx->layer_surface);
-    if (ctx->surface)       wl_surface_destroy(ctx->surface);
-    if (ctx->buffer)        wl_buffer_destroy(ctx->buffer);
-    if (ctx->display)       wl_display_disconnect(ctx->display);
-
-    if (ctx->active_workspace) free(ctx->active_workspace);
-    if (ctx->active_app)       free(ctx->active_app);
-    if (ctx->font)             free(ctx->font);
-}
-
-
-
-void initial_hyprland_query(struct app_context *ctx) {
-    char *json_data = query_hyprland_ipc("workspaces");
-    ctx->workspace_count = 0;
-    memset(ctx->workspaces, 0, sizeof(ctx->workspaces));
-    memset(ctx->workspace_windows, 0, sizeof(ctx->workspace_windows));
-
-    if (json_data) {
-        char *ptr = json_data;
-        while ((ptr = strstr(ptr, "\"id\":")) != NULL &&
-                ctx->workspace_count < 32) {
-            int ws_id = 0;
-            int windows_count = 0;
-
-            if (sscanf(ptr, "\"id\": %d", &ws_id) == 1) {
-                ctx->workspaces[ctx->workspace_count] = ws_id;
-                char *win_ptr = strstr(ptr, "\"windows\":");
-                if (win_ptr) {
-                    sscanf(win_ptr, "\"windows\": %d", &windows_count);
-                }
-                ctx->workspace_windows[ctx->workspace_count] = windows_count;
-                ++ctx->workspace_count;
-            }
-            ptr += 5;
-        }
-        free(json_data);
-        json_data = NULL;
-    }
-
-    json_data = query_hyprland_ipc("activeworkspace");
-    if (json_data) {
-        char *id_pos = strstr(json_data, "\"id\":");
-        if (id_pos) {
-            id_pos += 5;
-            while (*id_pos == ' ') ++id_pos;
-            int idx = 0;
-            while (isdigit((unsigned char)id_pos[idx]) && idx < 10) {
-                ctx->active_workspace[idx] = id_pos[idx];
-                ++idx;
-            }
-            ctx->active_workspace[idx] = '\0';
-        } else {
-            strncpy(ctx->active_workspace, json_data, 10);
-            ctx->active_workspace[strcspn(ctx->active_workspace, "\r\n")] = '\0';
-        }
-        free(json_data);
-        json_data = NULL;
-    }
-
-    // fallback for some previous error
-    if (ctx->workspace_count == 0) {
-        ctx->workspaces[0] = 1;
-        ctx->workspace_windows[0] = 0;
-        ctx->workspace_count = 1;
-    }
-}
-
-
-
-int create_hyprland_socket(int *sock) {
-    char socket_path[512] = {0};
-    int tmp_sock = socket(AF_UNIX, SOCK_STREAM, 0);
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    int count = 0;
-    const int max_retries = 5;
-
-    while (!get_socket_path(socket_path, sizeof(socket_path)) && count <= max_retries) {
-        sleep(1);
-        ++count;
-    }
-    if (tmp_sock < 0 || count == max_retries) return 1;
-
-    count = 0;
-    strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char));
-    while (connect(tmp_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1 && count <= max_retries) {
-        sleep(1);
-        ++count;
-    }
-    if (count == max_retries) return 1;
-
-    *sock = tmp_sock;
-    return 0;
-}
+// forward declaration
+uint32_t setup_ctx(struct app_context *ctx);
+static void cleanup(struct app_context *ctx);
 
 
 
@@ -193,7 +40,7 @@ int main(int argc, char **argv) {
     zombieProtect();
     if (setup_ctx(ctx)) return 0;
     fetch_hyprland_colors(ctx);
-    if (!optHandling(argc, argv, ctx)) return 0;
+    if (optHandling(argc, argv, ctx)) return 0;
     create_hyprland_socket(&hyprland_sock);
     initial_hyprland_query(ctx);
 
@@ -202,11 +49,11 @@ int main(int argc, char **argv) {
     fds[1].fd = hyprland_sock;
     fds[1].events = POLLIN;
 #ifdef DEBUG
-    printf("init done. starting event-loop\n");
+    printf("init done. starting main-loop\n");
 #endif
     fflush(stdout);
 
-    // main program loop
+// main program loop
     while (ctx->running) {
         if (!ctx->running) break;
         // 1: Wayland-Handshake
@@ -385,4 +232,76 @@ int main(int argc, char **argv) {
     cleanup(ctx);
 
     return 0;
+}
+
+
+
+uint32_t setup_ctx(struct app_context *ctx) {
+    ctx->running = 1;
+    ctx->width = 0;
+    ctx->height = 16;
+    ctx->configured = 0;
+    ctx->active_workspace = calloc(1024, sizeof(char));
+    ctx->active_app = calloc(1024, sizeof(char));
+    ctx->font = calloc(1024, sizeof(char));
+
+    if (ctx->font) strcpy((char *)ctx->font, "DejaVu Sans 12");
+    ctx->display = wl_display_connect(NULL);
+
+    if (!ctx->display) return 1;
+
+    ctx->registry = wl_display_get_registry(ctx->display);
+    wl_registry_add_listener(ctx->registry, &registry_listener, ctx);
+    wl_display_roundtrip(ctx->display);
+
+    if (ctx->seat) wl_seat_add_listener(ctx->seat, &seat_listener, ctx);
+
+    wl_display_roundtrip(ctx->display);
+
+    if (!ctx->compositor || !ctx->layer_shell || !ctx->shm) {
+        fprintf(stderr, "Err: critical Wayland handler missing.\n");
+        wl_display_disconnect(ctx->display);
+        return 1;
+    }
+
+    ctx->surface = wl_compositor_create_surface(ctx->compositor);
+    ctx->layer_surface = zwlr_layer_shell_v1_get_layer_surface(ctx->layer_shell,
+            ctx->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_TOP,"wbar");
+
+    uint32_t anchors = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    zwlr_layer_surface_v1_set_anchor(ctx->layer_surface, anchors);
+    zwlr_layer_surface_v1_set_size(ctx->layer_surface, 0, ctx->height);
+    zwlr_layer_surface_v1_set_exclusive_zone(ctx->layer_surface, ctx->height);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(ctx->layer_surface, 0);
+    zwlr_layer_surface_v1_add_listener(ctx->layer_surface,
+            &layer_surface_listener, ctx);
+
+    wl_surface_commit(ctx->surface);
+    wl_display_flush(ctx->display);
+
+    return 0;
+}
+
+
+
+static void cleanup(struct app_context *ctx) {
+    if (ctx->surface) {
+        wl_surface_attach(ctx->surface, NULL, 0, 0);
+        wl_surface_commit(ctx->surface);
+    }
+
+    wl_display_flush(ctx->display);
+
+    if (ctx->display)       wl_display_roundtrip(ctx->display);
+    if (ctx->seat)          wl_seat_destroy(ctx->seat);
+    if (ctx->layer_surface) zwlr_layer_surface_v1_destroy(ctx->layer_surface);
+    if (ctx->surface)       wl_surface_destroy(ctx->surface);
+    if (ctx->buffer)        wl_buffer_destroy(ctx->buffer);
+    if (ctx->display)       wl_display_disconnect(ctx->display);
+
+    if (ctx->active_workspace) free(ctx->active_workspace);
+    if (ctx->active_app)       free(ctx->active_app);
+    if (ctx->font)             free(ctx->font);
 }

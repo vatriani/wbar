@@ -16,8 +16,6 @@
 
 
 
-
-
 static int allocate_shm_file(size_t size) {
     int fd = memfd_create("wlauncher-shared-buffer", MFD_CLOEXEC);
     if (fd < 0) return -1;
