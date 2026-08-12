@@ -12,7 +12,8 @@
 
 #include "types.h"
 
-
+int init_rendering(struct app_context *ctx);
+void cleanup_rendering(struct app_context *ctx);
 void draw_frame(struct app_context *ctx);
 
 #endif

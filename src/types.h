@@ -11,13 +11,25 @@
 
 #define _GNU_SOURCE
 
+#include <stdint.h>
+#include <pango/pangocairo.h>
 
 
-struct colors {
+
+struct color {
     double r;
     double g;
     double b;
 };
+
+
+
+typedef enum {
+    RENDER_LEFT   = (1 << 0),
+    RENDER_CENTER = (1 << 1),
+    RENDER_RIGHT  = (1 << 2),
+    RENDER_ALL    = 0xFF
+} render_segments_t;
 
 
 
@@ -33,6 +45,7 @@ struct app_context {
     struct zwlr_layer_surface_v1  *layer_surface;
     struct wl_buffer              *buffer;
     struct wl_pointer             *pointer;
+    struct wl_shm_pool            *wl_pool;
 
     int                            workspaces[32];
     int                            workspace_windows[32];
@@ -46,14 +59,30 @@ struct app_context {
     int                            sys_cpu;
 
     char                          *font;
-    double                         bg_r, bg_g, bg_b;
-    double                         accent_r, accent_g, accent_b;
-    double                         fg_r, fg_g, fg_b;
+    struct color                   bg_color;
+    struct color                   fg_color;
+    struct color                   accent_color;
 
     int                            running;
     int                            width;
     int                            height;
     int                            configured;
+    int                            initial_draw_done;
+
+// some pango cairo management
+    uint32_t                      *shm_data;
+    size_t                         shm_size;
+    int                            shm_fd;
+    struct wl_buffer              *wl_buffer;
+    int                            changed_segments;
+    int                            left_width;
+    int                            center_width;
+    int                            right_width;
+
+    cairo_surface_t               *cairo_surface_shm;
+    cairo_t                       *cairo_t_shm;
+    PangoLayout                   *pango_layout;
+    PangoFontDescription          *pango_font_desc;
 };
 
 #endif

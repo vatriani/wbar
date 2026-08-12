@@ -20,7 +20,8 @@ void get_battery_info(char *dest, size_t max_len) {
     char status[32] = {0};
 
     if (fscanf(f_cap, "%d", &capacity) != 1) capacity = 0;
-    if (fgets(status, sizeof(status) - 1, f_stat) == NULL) strcpy(status, "Unknown");
+    if (fgets(status, sizeof(status) - 1, f_stat) == NULL)
+            strcpy(status, "Unknown");
 
     fclose(f_cap);
     fclose(f_stat);
@@ -77,13 +78,15 @@ int get_cpu_load() {
 
     unsigned long long user, nice, system, idle;
 
-    if (fscanf(fp, "cpu %llu %llu %llu %llu", &user, &nice, &system, &idle) != 4) {
+    if (fscanf(fp, "cpu %llu %llu %llu %llu", &user, &nice, &system, &idle)
+            != 4) {
         fclose(fp);
         return 0;
     }
     fclose(fp);
 
-    unsigned long long prev_total = prev_user + prev_nice + prev_system + prev_idle;
+    unsigned long long prev_total = prev_user + prev_nice + prev_system +
+            prev_idle;
     unsigned long long current_total = user + nice + system + idle;
 
     unsigned long long total_delta = current_total - prev_total;

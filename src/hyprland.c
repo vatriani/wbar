@@ -24,7 +24,8 @@ int get_socket_path(char *path, size_t max_len) {
 
     const char *env_sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
     if (env_sig && strlen(env_sig) > 0) {
-        snprintf(path, max_len, "%s/hypr/%s/.socket2.sock", xdg_runtime, env_sig);
+        snprintf(path, max_len, "%s/hypr/%s/.socket2.sock",
+                xdg_runtime, env_sig);
         return 1;
     }
 
@@ -39,66 +40,109 @@ int get_socket_path(char *path, size_t max_len) {
 
     if (strlen(instance_id) == 0) return 0;
 
-    snprintf(path, max_len, "%s/hypr/%s/.socket2.sock", xdg_runtime, instance_id);
+    snprintf(path, max_len, "%s/hypr/%s/.socket2.sock", xdg_runtime,
+            instance_id);
     return 1;
 }
 
 
 
+int get_json_value(const char *json, const char *key, char *dest,
+        size_t dest_size) {
+    if (!json || !key || !dest || dest_size == 0) return 0;
+    dest[0] = '\0';
+
+    char search_key[256];
+    snprintf(search_key, sizeof(search_key), "\"%s\":", key);
+
+    const char *pos = strstr(json, search_key);
+    if (!pos) return 0;
+
+    pos = strchr(pos, ':');
+    if (!pos) return 0;
+    ++pos;
+
+    while (*pos == ' ' || *pos == '"') ++pos;
+
+    size_t idx = 0;
+    while (*pos != '\0' && *pos != ',' && *pos != '}' && *pos != ']' &&
+            *pos != '"' && *pos != '\n' && *pos != '\r' &&
+            idx < (dest_size - 1)) {
+        if (*pos == '\\' && *(pos + 1) == '"') ++pos;
+        dest[idx++] = *pos++;
+    }
+
+    while (idx > 0 && dest[idx - 1] == ' ') --idx;
+
+    dest[idx] = '\0';
+    return (idx > 0);
+}
+
+
+
 void initial_hyprland_query(struct app_context *ctx) {
-    char *json_data = query_hyprland_ipc("workspaces");
     ctx->workspace_count = 0;
     memset(ctx->workspaces, 0, sizeof(ctx->workspaces));
     memset(ctx->workspace_windows, 0, sizeof(ctx->workspace_windows));
 
+    // 1. WORKSPACES PARSEN
+    char *json_data = query_hyprland_ipc("workspaces");
     if (json_data) {
         char *ptr = json_data;
-        while ((ptr = strstr(ptr, "\"id\":")) != NULL &&
-                ctx->workspace_count < 32) {
-            int ws_id = 0;
-            int windows_count = 0;
+        while ((ptr = strstr(ptr, "{")) != NULL && ctx->workspace_count < 32) {
+            char id_str[16] = {0};
+            char win_str[16] = {0};
 
-            if (sscanf(ptr, "\"id\": %d", &ws_id) == 1) {
-                ctx->workspaces[ctx->workspace_count] = ws_id;
-                char *win_ptr = strstr(ptr, "\"windows\":");
-                if (win_ptr) {
-                    sscanf(win_ptr, "\"windows\": %d", &windows_count);
-                }
-                ctx->workspace_windows[ctx->workspace_count] = windows_count;
-                ++ctx->workspace_count;
+            get_json_value(ptr, "id", id_str, sizeof(id_str));
+            get_json_value(ptr, "windows", win_str, sizeof(win_str));
+
+            if (id_str[0] != '\0') {
+                ctx->workspaces[ctx->workspace_count] = atoi(id_str);
+                ctx->workspace_windows[ctx->workspace_count] = atoi(win_str);
+                ctx->workspace_count++;
             }
-            ptr += 5;
+            ++ptr;
         }
         free(json_data);
         json_data = NULL;
     }
 
+    // 2. ACTIVE WORKSPACE PARSEN
     json_data = query_hyprland_ipc("activeworkspace");
     if (json_data) {
-        char *id_pos = strstr(json_data, "\"id\":");
-        if (id_pos) {
-            id_pos += 5;
-            while (*id_pos == ' ') ++id_pos;
-            int idx = 0;
-            while (isdigit((unsigned char)id_pos[idx]) && idx < 10) {
-                ctx->active_workspace[idx] = id_pos[idx];
-                ++idx;
-            }
-            ctx->active_workspace[idx] = '\0';
-        } else {
+        get_json_value(json_data, "id", ctx->active_workspace, 10);
+
+        if (ctx->active_workspace[0] == '\0') {
             strncpy(ctx->active_workspace, json_data, 10);
-            ctx->active_workspace[strcspn(ctx->active_workspace, "\r\n")] = '\0';
+            ctx->active_workspace[strcspn(ctx->active_workspace,
+                    "\r\n")] = '\0';
         }
         free(json_data);
         json_data = NULL;
     }
 
-    // fallback for some previous error
-    if (ctx->workspace_count == 0) {
-        ctx->workspaces[0] = 1;
-        ctx->workspace_windows[0] = 0;
-        ctx->workspace_count = 1;
+    // 3. ACTIVE WINDOW PARSEN
+    json_data = query_hyprland_ipc("activewindow");
+    if (json_data) {
+        char app_class[256] = {0};
+        char app_title[256] = {0};
+
+        get_json_value(json_data, "class", app_class, sizeof(app_class));
+        get_json_value(json_data, "title", app_title, sizeof(app_title));
+
+        if (app_class[0] != '\0') {
+            if (app_title[0] != '\0') snprintf(ctx->active_app, 1023,
+                    "%s - %s", app_class, app_title);
+            else strncpy(ctx->active_app, app_class, 1023);
+        }
+        else {
+            if (app_title[0] != '\0') strncpy(ctx->active_app, app_title, 1023);
+            else ctx->active_app[0] = '\0';
+        }
+        free(json_data);
+        json_data = NULL;
     }
+    else ctx->active_app[0] = '\0';
 }
 
 
@@ -112,7 +156,8 @@ int create_hyprland_socket(int *sock) {
     int count = 0;
     const int max_retries = 5;
 
-    while (!get_socket_path(socket_path, sizeof(socket_path)) && count <= max_retries) {
+    while (!get_socket_path(socket_path, sizeof(socket_path)) &&
+            count <= max_retries) {
         sleep(1);
         ++count;
     }
@@ -120,7 +165,8 @@ int create_hyprland_socket(int *sock) {
 
     count = 0;
     strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char));
-    while (connect(tmp_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1 && count <= max_retries) {
+    while (connect(tmp_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1 &&
+            count <= max_retries) {
         sleep(1);
         ++count;
     }
@@ -132,11 +178,6 @@ int create_hyprland_socket(int *sock) {
 
 
 void fetch_hyprland_colors(struct app_context *ctx) {
-    // setting some fallback values
-    ctx->bg_r = 0.117; ctx->bg_g = 0.117; ctx->bg_b = 0.180;
-    ctx->accent_r = 0.321; ctx->accent_g = 0.443; ctx->accent_b = 0.654;
-    ctx->fg_r = 0.9; ctx->fg_g = 0.9; ctx->fg_b = 0.9;
-
     const char *conf_path = "~/.config/hypr/scheme/current.conf";
     wordexp_t exp_result;
     if (wordexp(conf_path, &exp_result, 0) != 0) return;
@@ -149,7 +190,7 @@ void fetch_hyprland_colors(struct app_context *ctx) {
     wordfree(&exp_result);
 
     if (!file) {
-        fprintf(stderr, "[wbar] Warn: cannot read scheme/current.conf . using fallbacks.\n");
+        fprintf(stderr, "[wbar] Warn: cannot read scheme/current.conf. using fallbacks.\n");
         return;
     }
 
@@ -158,24 +199,25 @@ void fetch_hyprland_colors(struct app_context *ctx) {
     while (fgets(line, sizeof(line), file)) {
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
 
-        int is_bg = (strstr(line, "$background ") == line || strstr(line, "$base ") == line);
-        int is_accent = (strstr(line, "$primary ") == line || strstr(line, "$accent ") == line);
-        int is_fg = (strstr(line, "$text ") == line || strstr(line, "$foreground ") == line);
+        int is_bg = (strstr(line, "$background ") == line
+                || strstr(line, "$base ") == line);
+        int is_accent = (strstr(line, "$primary ") == line
+                || strstr(line, "$accent ") == line);
+        int is_fg = (strstr(line, "$text ") == line
+                || strstr(line, "$foreground ") == line);
 
         if (!is_bg && !is_accent && !is_fg) continue;
 
-        // 3. Nach dem Gleichheitszeichen suchen
         char *eq = strchr(line, '=');
         if (!eq) continue;
 
         char *hex_start = eq + 1;
-        // Führende Leerzeichen hinter dem '=' überspringe
+
         while (*hex_start == ' ' || *hex_start == '\t') ++hex_start;
 
-        // 4. Rohen 6-stelligen Hex-Wert einlesen
         unsigned int hex_val = 0;
         char hex_tmp[7] = {0};
-        strncpy(hex_tmp, hex_start, 6); // Kopiert exakt die 6 Farbcodes (z.B. 130d0a)
+        strncpy(hex_tmp, hex_start, 6);
 
         if (sscanf(hex_tmp, "%x", &hex_val) == 1) {
             double r = ((hex_val >> 16) & 0xFF) / 255.0;
@@ -183,11 +225,17 @@ void fetch_hyprland_colors(struct app_context *ctx) {
             double b = (hex_val & 0xFF) / 255.0;
 
             if (is_bg) {
-                ctx->bg_r = r; ctx->bg_g = g; ctx->bg_b = b;
+                ctx->bg_color.r = r;
+                ctx->bg_color.g = g;
+                ctx->bg_color.b = b;
             } else if (is_accent) {
-                ctx->accent_r = r; ctx->accent_g = g; ctx->accent_b = b;
+                ctx->accent_color.r = r;
+                ctx->accent_color.g = g;
+                ctx->accent_color.b = b;
             } else if (is_fg) {
-                ctx->fg_r = r; ctx->fg_g = g; ctx->fg_b = b;
+                ctx->fg_color.r = r;
+                ctx->fg_color.g = g;
+                ctx->fg_color.b = b;
             }
         }
     }
@@ -196,9 +244,11 @@ void fetch_hyprland_colors(struct app_context *ctx) {
 #ifdef DEBUG
     printf("[wbar] colors extracted from current.conf\n");
     printf("[wbar] -> BG:(%.2f, %.2f, %.2f) Accent:(%.2f, %.2f, %.2f) FG:(%.2f, %.2f, %.2f)\n",
-           ctx->bg_r, ctx->bg_g, ctx->bg_b, ctx->accent_r, ctx->accent_g, ctx->accent_b, ctx->fg_r, ctx->fg_g, ctx->fg_b);
-#endif
+           ctx->bg_color.r, ctx->bg_color.g, ctx->bg_color.b,
+           ctx->accent_color.r, ctx->accent_color.g, ctx->accent_color.b,
+           ctx->fg_color.r, ctx->fg_color.g, ctx->fg_color.b);
     fflush(stdout);
+#endif
 }
 
 
@@ -214,7 +264,8 @@ char *query_hyprland_ipc(const char *command) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "/run/user/%d/hypr/%s/.socket.sock", getuid(), sig);
+    snprintf(addr.sun_path, sizeof(addr.sun_path),
+            "/run/user/%d/hypr/%s/.socket.sock", getuid(), sig);
 
     if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(sock);
@@ -265,16 +316,39 @@ void send_hyprland_cmd(const char *command) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "/run/user/%d/hypr/%s/.socket.sock", getuid(), sig);
+    snprintf(addr.sun_path, sizeof(addr.sun_path),
+            "/run/user/%d/hypr/%s/.socket.sock", getuid(), sig);
 
     if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(sock);
         return;
     }
 
-    if (write(sock, command, strlen(command)) < 0) {
+    if (write(sock, command, strlen(command)) < 0)
         perror("[wbar] Fehler beim Schreiben in den Socket");
-    }
 
     close(sock);
+}
+
+
+
+void parse_hyprland_app_name(const char *raw_data, char *dest,
+        size_t dest_size) {
+    if (!raw_data || !dest || dest_size == 0) return;
+
+    char temp[1024];
+    strncpy(temp, raw_data, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+
+    char *comma = strchr(temp, ',');
+    if (comma) {
+        *comma = '\0';
+        char *app_class = temp;
+        char *app_title = comma + 1;
+
+        snprintf(dest, dest_size, "%s - %s", app_class, app_title);
+    } else {
+        strncpy(dest, temp, dest_size - 1);
+        dest[dest_size - 1] = '\0';
+    }
 }

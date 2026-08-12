@@ -33,7 +33,6 @@ int main(int argc, char **argv) {
     struct app_context stack_ctx;
     struct pollfd fds[2];
     static char ipc_buffer[16384];
-    int initial_draw_done = 0;
     struct app_context *ctx = &stack_ctx;
     memset(ctx, 0, sizeof(struct app_context));
 
@@ -44,6 +43,7 @@ int main(int argc, char **argv) {
     if (optHandling(argc, argv, ctx)) return 0;
     create_hyprland_socket(&hyprland_sock);
     initial_hyprland_query(ctx);
+    init_rendering(ctx);
 
     fds[0].fd = wl_display_get_fd(ctx->display);
     fds[0].events = POLLIN;
@@ -70,10 +70,11 @@ int main(int argc, char **argv) {
             break;
         }
 
-        if (ctx->configured && !initial_draw_done && ctx->width > 0) {
+        // ERSTER START: Zeichne alles
+        if (ctx->configured && !ctx->initial_draw_done) {
             draw_frame(ctx);
-            initial_draw_done = 1;
             wl_display_flush(ctx->display);
+            ctx->initial_draw_done = 1;
         }
 
         // 2: block waiting (Poll)
@@ -83,14 +84,23 @@ int main(int argc, char **argv) {
             wl_display_cancel_read(ctx->display);
             break;
         }
+
+        // TIMEOUT ERREICHT (1 Sekunde ist um -> Uhrzeit/System-Update)
         if (ret == 0) {
             wl_display_cancel_read(ctx->display);
+
+            // Hole Systemdaten
             get_iso_time(ctx->sys_time, sizeof(ctx->sys_time));
             get_ram_usage(ctx->sys_ram, sizeof(ctx->sys_ram));
             get_battery_info(ctx->sys_bat, sizeof(ctx->sys_bat));
             ctx->sys_cpu = get_cpu_load();
-            if (initial_draw_done) draw_frame(ctx);
-            continue; // Direkt zum nächsten Schleifendurchlauf springen
+
+            if (ctx->initial_draw_done) {
+                ctx->changed_segments |= RENDER_RIGHT;
+                draw_frame(ctx);
+                wl_display_flush(ctx->display);
+            }
+            continue;
         }
 
         // 3: wayland event Handling
@@ -112,7 +122,6 @@ int main(int argc, char **argv) {
             }
 
             ipc_buffer[len] = '\0';
-            int state_changed = 0;
 
             char *line_saveptr = NULL;
             char *line = strtok_r(ipc_buffer, "\n", &line_saveptr);
@@ -124,19 +133,20 @@ int main(int argc, char **argv) {
                     char *data = delim + 2;
 
                     if (data && *data != '\0') {
-                        // changing workspace
+                        // A. ÄNDERUNG DES WORKSPACES -> Beeinflusst LINKS
                         if (strstr(line, "workspace>>") == line) {
                             strncpy(ctx->active_workspace, data, 1023);
                             ctx->active_workspace[strlen(data) < 1023 ? strlen(data) : 1023] = '\0';
-                            state_changed = 1;
+                            ctx->changed_segments |= RENDER_LEFT; // Gezielt links triggern
                         }
-                        // changing active app window
+
+                        // B. ÄNDERUNG DES CODES / AKTIVE APP -> Beeinflusst MITTE
                         else if (strstr(line, "activewindow>>") == line) {
-                            strncpy(ctx->active_app, data, 1023);
-                            ctx->active_app[strlen(data) < 1023 ? strlen(data) : 1023] = '\0';
-                            state_changed = 1;
+                            parse_hyprland_app_name(data, ctx->active_app, 1024);
+                            ctx->changed_segments |= RENDER_CENTER; // Gezielt Mitte triggern
                         }
-                        // open app window event
+
+                        // C. NEUES FENSTER GEÖFFNET -> Beeinflusst LINKS (Workspace-Anzeige)
                         else if (strstr(line, "openwindow>>") == line) {
                             char *ws_start = strchr(line, ',');
                             if (ws_start) {
@@ -147,7 +157,7 @@ int main(int argc, char **argv) {
                                     if (ctx->workspaces[i] == target_ws) {
                                         ++ctx->workspace_windows[i];
                                         found = 1;
-                                        state_changed = 1;
+                                        ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
                                         break;
                                     }
                                 }
@@ -155,35 +165,16 @@ int main(int argc, char **argv) {
                                     ctx->workspaces[ctx->workspace_count] = target_ws;
                                     ctx->workspace_windows[ctx->workspace_count] = 1;
                                     ++ctx->workspace_count;
-                                    state_changed = 1;
                                 }
+                                ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
                             }
                         }
-                        // movetoworkspace event
-                        else if (strstr(line, "movewindowv2>>") == line) {
-                            char *ws_start = strchr(line, ',');
-                            if (ws_start) {
-                                int target_ws = atoi(ws_start + 1);
-                                int found = 0;
-                                for (unsigned short int i = 0; i < ctx->workspace_count; ++i) {
-                                    if (ctx->workspaces[i] == target_ws) {
-                                        ++ctx->workspace_windows[i];
-                                        found = 1;
-                                        break;
-                                    }
-                                }
-                                if (!found && ctx->workspace_count < 32) {
-                                    ctx->workspaces[ctx->workspace_count] = target_ws;
-                                    ctx->workspace_windows[ctx->workspace_count] = 1;
-                                    ctx->workspace_count++;
-                                }
-                                state_changed = 1;
-                            }
-                        }
-                        // E. Hard-Refresh via JSON
-                        else if (strstr(line, "closewindow>>") == line ||
-                                 strstr(line, "destroyworkspace") == line ||
-                                  strstr(line, "createworkspace") == line) {
+
+                        // E. HARD-REFRESH VIA JSON -> Beeinflusst LINKS
+                        else if (strstr(line, "destroyworkspace") == line ||
+                                strstr(line, "createworkspace") == line ||
+                                strstr(line, "closewindow>>") == line ||
+                                strstr(line, "movewindowv2>>") == line) {
                             char *uj = query_hyprland_ipc("workspaces");
 
                             if (uj) {
@@ -204,7 +195,7 @@ int main(int argc, char **argv) {
                                 }
                                 ctx->workspace_count = c;
                                 free(uj);
-                                state_changed = 1;
+                                ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
                             }
                         }
                     }
@@ -212,23 +203,21 @@ int main(int argc, char **argv) {
                 line = strtok_r(NULL, "\n", &line_saveptr);
             }
 
-            // triggers rendering when something changing or in initial draw
-            if (state_changed && initial_draw_done) {
+            if (ctx->changed_segments && ctx->initial_draw_done) {
 #ifdef DEBUG
                 printf("actual frame Workspace=%s, App=%s\n",
-                        ctx->active_workspace, ctx->active_app);
+                    ctx->active_workspace, ctx->active_app);
 #endif
                 fflush(stdout);
                 draw_frame(ctx);
+                wl_display_flush(ctx->display);
             }
         }
-
         if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) ||
             (fds[1].revents & (POLLERR | POLLHUP | POLLNVAL))) {
             break;
         }
     }
-
     close(hyprland_sock);
     cleanup(ctx);
 
@@ -237,14 +226,30 @@ int main(int argc, char **argv) {
 
 
 
+
 uint32_t setup_ctx(struct app_context *ctx) {
     ctx->running = 1;
     ctx->width = 0;
     ctx->height = 16;
     ctx->configured = 0;
+    ctx->initial_draw_done = 0;
     ctx->active_workspace = calloc(1024, sizeof(char));
     ctx->active_app = calloc(1024, sizeof(char));
     ctx->font = calloc(1024, sizeof(char));
+    ctx->changed_segments = RENDER_ALL;
+    ctx->left_width = 0;
+    ctx->center_width = 0;
+    ctx->right_width = 0;
+    ctx->bg_color.r = 0.117;
+    ctx->bg_color.g = 0.117;
+    ctx->bg_color.b = 0.180;
+    ctx->accent_color.r = 0.321;
+    ctx->accent_color.g = 0.443;
+    ctx->accent_color.b = 0.654;
+    ctx->fg_color.r = 0.9;
+    ctx->fg_color.g = 0.9;
+    ctx->fg_color.b = 0.9;
+
 
     if (ctx->font) strcpy((char *)ctx->font, "DejaVu Sans 12");
     ctx->display = wl_display_connect(NULL);
@@ -305,4 +310,6 @@ static void cleanup(struct app_context *ctx) {
     if (ctx->active_workspace) free(ctx->active_workspace);
     if (ctx->active_app)       free(ctx->active_app);
     if (ctx->font)             free(ctx->font);
+
+    cleanup_rendering(ctx);
 }
