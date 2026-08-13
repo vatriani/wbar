@@ -10,15 +10,15 @@ static void layer_surface_configure(void *data,
 
     zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
 
-    if (width > 0) ctx->width = width;
-    else if (ctx->width <= 0)  ctx->width = 1920;
+    if (width > 0) ctx->wl.width = width;
+    else if (ctx->wl.width <= 0)  ctx->wl.width = 1920;
 
-    if (height > 0) ctx->height = height;
+    if (height > 0) ctx->wl.height = height;
 
-    int is_first_time = (ctx->configured == 0);
-    ctx->configured = 1;
+    int is_first_time = (ctx->wl.configured == 0);
+    ctx->wl.configured = 1;
 
-    if (is_first_time && ctx->width > 0 && ctx->height > 0) draw_frame(ctx);
+    if (is_first_time && ctx->wl.width > 0 && ctx->wl.height > 0) draw_frame(ctx);
 }
 
 

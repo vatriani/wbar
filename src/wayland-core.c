@@ -57,8 +57,8 @@ static void output_handle_mode(void *data, struct wl_output *wl_output,
 
     struct app_context *ctx = data;
     if (flags & WL_OUTPUT_MODE_CURRENT) {
-        if (ctx->width <= 0) {
-            ctx->width = width;
+        if (ctx->wl.width <= 0) {
+            ctx->wl.width = width;
         }
     }
 }
@@ -94,22 +94,22 @@ void registry_handle_global(void *data, struct wl_registry *registry,
 
     if (strcmp(interface, "wl_compositor") == 0) {
         uint32_t bind_ver = (version < 4) ? version : 4;
-        ctx->compositor = wl_registry_bind(registry, id,
+        ctx->wl.compositor = wl_registry_bind(registry, id,
                 &wl_compositor_interface, bind_ver);
     }
     else if (strcmp(interface, "zwlr_layer_shell_v1") == 0) {
         uint32_t bind_ver = (version < 4) ? version : 4;
-        ctx->layer_shell = wl_registry_bind(registry, id,
+        ctx->wl.layer_shell = wl_registry_bind(registry, id,
                 &zwlr_layer_shell_v1_interface, bind_ver);
     }
     else if (strcmp(interface, "wl_shm") == 0) {
         uint32_t bind_ver = (version < 1) ? version : 1;
-        ctx->shm = wl_registry_bind(registry, id,
+        ctx->wl.shm = wl_registry_bind(registry, id,
                 &wl_shm_interface, bind_ver);
     }
     else if (strcmp(interface, "wl_seat") == 0) {
         uint32_t bind_ver = (version < 1) ? version : 1;
-        ctx->seat = wl_registry_bind(registry, id,
+        ctx->wl.seat = wl_registry_bind(registry, id,
                 &wl_seat_interface, bind_ver);
     }
     if (strcmp(interface, wl_output_interface.name) == 0) {

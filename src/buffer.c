@@ -16,10 +16,6 @@
 
 
 
-static const int padding = 5;
-
-
-
 static int allocate_shm_file(size_t size) {
     int fd = memfd_create("wlauncher-shared-buffer", MFD_CLOEXEC);
     if (fd < 0) return -1;
@@ -45,42 +41,42 @@ static const struct wl_buffer_listener buffer_listener = {
 
 
 int init_rendering(struct app_context *ctx) {
-    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, ctx->width);
-    ctx->shm_size = stride * ctx->height;
+    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, ctx->wl.width);
+    ctx->render.shm_size = stride * ctx->wl.height;
 
-    ctx->shm_fd = allocate_shm_file(ctx->shm_size);
-    if (ctx->shm_fd < 0) return -1;
+    ctx->render.shm_fd = allocate_shm_file(ctx->render.shm_size);
+    if (ctx->render.shm_fd < 0) return -1;
 
-    ctx->shm_data = mmap(NULL, ctx->shm_size, PROT_READ | PROT_WRITE,
-        MAP_SHARED, ctx->shm_fd, 0);
-    if (ctx->shm_data == MAP_FAILED) {
-        close(ctx->shm_fd);
-        ctx->shm_fd = -1;
+    ctx->render.shm_data = mmap(NULL, ctx->render.shm_size, PROT_READ | PROT_WRITE,
+        MAP_SHARED, ctx->render.shm_fd, 0);
+    if (ctx->render.shm_data == MAP_FAILED) {
+        close(ctx->render.shm_fd);
+        ctx->render.shm_fd = -1;
         return -1;
     }
-    memset(ctx->shm_data, 0, ctx->shm_size);
+    memset(ctx->render.shm_data, 0, ctx->render.shm_size);
 
-    ctx->cairo_surface_shm = cairo_image_surface_create_for_data(
-        (unsigned char *)ctx->shm_data, CAIRO_FORMAT_RGB24,
-        ctx->width, ctx->height, stride);
-    ctx->cairo_t_shm = cairo_create(ctx->cairo_surface_shm);
+    ctx->render.cairo_surface_shm = cairo_image_surface_create_for_data(
+        (unsigned char *)ctx->render.shm_data, CAIRO_FORMAT_RGB24,
+        ctx->wl.width, ctx->wl.height, stride);
+    ctx->render.cairo_t_shm = cairo_create(ctx->render.cairo_surface_shm);
 
-    ctx->pango_layout = pango_cairo_create_layout(ctx->cairo_t_shm);
-    ctx->pango_font_desc = pango_font_description_from_string(ctx->font);
-    pango_layout_set_font_description(ctx->pango_layout, ctx->pango_font_desc);
+    ctx->render.pango_layout = pango_cairo_create_layout(ctx->render.cairo_t_shm);
+    ctx->render.pango_font_desc = pango_font_description_from_string(ctx->render.font);
+    pango_layout_set_font_description(ctx->render.pango_layout, ctx->render.pango_font_desc);
 
-    ctx->wl_pool = wl_shm_create_pool(ctx->shm, ctx->shm_fd, ctx->shm_size);
-    ctx->wl_buffer = wl_shm_pool_create_buffer(ctx->wl_pool,
-            0, ctx->width, ctx->height, stride, WL_SHM_FORMAT_XRGB8888);
+    ctx->wl.pool = wl_shm_create_pool(ctx->wl.shm, ctx->render.shm_fd, ctx->render.shm_size);
+    ctx->wl.buffer = wl_shm_pool_create_buffer(ctx->wl.pool,
+            0, ctx->wl.width, ctx->wl.height, stride, WL_SHM_FORMAT_XRGB8888);
 
-    if (!ctx->wl_buffer) {
-        wl_shm_pool_destroy(ctx->wl_pool);
-        munmap(ctx->shm_data, ctx->shm_size);
-        close(ctx->shm_fd);
+    if (!ctx->wl.buffer) {
+        wl_shm_pool_destroy(ctx->wl.pool);
+        munmap(ctx->render.shm_data, ctx->render.shm_size);
+        close(ctx->render.shm_fd);
         return -1;
     }
 
-    wl_buffer_add_listener(ctx->wl_buffer, &buffer_listener, ctx);
+    wl_buffer_add_listener(ctx->wl.buffer, &buffer_listener, ctx);
     ctx->changed_segments = RENDER_ALL;
 
     return 0;
@@ -89,191 +85,209 @@ int init_rendering(struct app_context *ctx) {
 
 
 void cleanup_rendering(struct app_context *ctx) {
-    if (ctx->pango_font_desc) pango_font_description_free(ctx->pango_font_desc);
-    if (ctx->pango_layout) g_object_unref(ctx->pango_layout);
-    if (ctx->wl_buffer) wl_buffer_destroy(ctx->wl_buffer);
-    if (ctx->shm_data) munmap(ctx->shm_data, ctx->width * 4 * ctx->height);
-    if (ctx->shm_fd >= 0) close(ctx->shm_fd);
-    cairo_destroy(ctx->cairo_t_shm);
-    cairo_surface_destroy(ctx->cairo_surface_shm);
+    if (ctx->render.pango_font_desc) pango_font_description_free(ctx->render.pango_font_desc);
+    if (ctx->render.pango_layout) g_object_unref(ctx->render.pango_layout);
+    if (ctx->wl.buffer) wl_buffer_destroy(ctx->wl.buffer);
+    if (ctx->render.shm_data) munmap(ctx->render.shm_data, ctx->wl.width * 4 * ctx->wl.height);
+    if (ctx->render.shm_fd >= 0) close(ctx->render.shm_fd);
+    cairo_destroy(ctx->render.cairo_t_shm);
+    cairo_surface_destroy(ctx->render.cairo_surface_shm);
+}
+
+
+
+/**
+ * Sortiert das Workspace-Array aufsteigend nach der Workspace-ID.
+ * Berücksichtigt nur die tatsächlich aktiven Workspaces.
+ */
+void sort_workspaces(struct workspace workspaces[MAX_WORKSPACES], int count) {
+    if (!workspaces || count <= 1) {
+        return;
+    }
+    // Flag zur vorzeitigen Terminierung (Optimierung: Falls bereits sortiert)
+    int swapped;
+    for (int i = 0; i < count - 1; ++i) {
+        swapped = 0;
+        for (int j = 0; j < count - i - 1; ++j) {
+            if (workspaces[j].id > workspaces[j + 1].id) {
+                // Einziger, atomarer Struct-Swap im RAM
+                struct workspace temp = workspaces[j];
+                workspaces[j] = workspaces[j + 1];
+                workspaces[j + 1] = temp;
+                swapped = 1;
+            }
+        }
+        // Wenn in einem Durchlauf nichts getauscht wurde, ist das Array fertig!
+        if (!swapped) {
+            break;
+        }
+    }
+}
+
+
+
+void segment_eraser(struct app_context *ctx, int x, int y, int width, int height) {
+    cairo_rectangle(ctx->render.cairo_t_shm, x, y, width, height);
+    cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
+            ctx->render.bg_color.g, ctx->render.bg_color.b);
+    cairo_fill(ctx->render.cairo_t_shm);
 }
 
 
 
 // 1. LINKS: Workspaces zeichnen
 void draw_segment_left(struct app_context *ctx) {
-    if (ctx->left_width) {
-        cairo_rectangle(ctx->cairo_t_shm, 0, 0, ctx->left_width, ctx->height);
-        cairo_set_source_rgb(ctx->cairo_t_shm, ctx->bg_color.r,
-            ctx->bg_color.g, ctx->bg_color.b);
-        cairo_fill(ctx->cairo_t_shm);
-    }
+    if (ctx->render.left_width)
+        segment_eraser(ctx, 0, 0, ctx->render.left_width, ctx->wl.height);
 
-    // 2. DEIN ORIGINALER WORKSPACE SORTIER-CODE (Nur 1x ausführen!)
-    int sorted_ids[32];
-    int sorted_windows[32];
-    memcpy(sorted_ids, ctx->workspaces, sizeof(sorted_ids));
-    memcpy(sorted_windows, ctx->workspace_windows, sizeof(sorted_windows));
-
-    for (int i = 0; i < ctx->workspace_count - 1; ++i) {
-        for (int j = 0; j < ctx->workspace_count - i - 1; ++j) {
-            if (sorted_ids[j] > sorted_ids[j + 1]) {
-                int temp_id = sorted_ids[j];
-                sorted_ids[j] = sorted_ids[j + 1];
-                sorted_ids[j + 1] = temp_id;
-
-                int temp_win = sorted_windows[j];
-                sorted_windows[j] = sorted_windows[j + 1];
-                sorted_windows[j + 1] = temp_win;
-            }
-        }
-    }
+    struct workspace sorted_ws[ctx->hypr.workspaces_count];
+    memcpy(sorted_ws, ctx->hypr.workspaces, sizeof(struct workspace)*ctx->hypr.workspaces_count);
+    sort_workspaces(sorted_ws, ctx->hypr.workspaces_count);
 
     // 3. DER EINZIGE ZEICHEN-DURCHLAUF (Direkt messen und malen)
-    int current_x = padding;
+    int current_x = ctx->render.padding;
     int text_width = 0, text_height = 0;
 
-    for (int i = 0; i < ctx->workspace_count; ++i) {
+    for (int i = 0; i < ctx->hypr.workspaces_count; ++i) {
         char item[128];
-        char id_str[32];
-        snprintf(id_str, sizeof(id_str), "%d", sorted_ids[i]);
+        char id_str[128];
+        snprintf(id_str, sizeof(id_str), "%d", sorted_ws[i].id);
 
-        if (sorted_windows[i] > 0) {
-            snprintf(item, sizeof(item), " [%d] - %d ", sorted_ids[i],
-                    sorted_windows[i]);
+        if (sorted_ws[i].window_count > 0) {
+            snprintf(item, sizeof(item), " [%d] - %d ", sorted_ws[i].id,
+                    sorted_ws[i].window_count);
         } else {
-            snprintf(item, sizeof(item), " [%d] ", sorted_ids[i]);
+            snprintf(item, sizeof(item), " [%d] ", sorted_ws[i].id);
         }
 
-        pango_layout_set_text(ctx->pango_layout, item, -1);
-        pango_layout_get_pixel_size(ctx->pango_layout, &text_width,
+        pango_layout_set_text(ctx->render.pango_layout, item, -1);
+        pango_layout_get_pixel_size(ctx->render.pango_layout, &text_width,
             &text_height);
 
-
-        if (ctx->active_workspace && strcmp(ctx->active_workspace, id_str)
+        if (ctx->hypr.active_workspace && strcmp(ctx->hypr.active_workspace, id_str)
                 == 0) {
-            cairo_set_source_rgb(ctx->cairo_t_shm, ctx->accent_color.r,
-                    ctx->accent_color.g, ctx->accent_color.b);
-            cairo_rectangle(ctx->cairo_t_shm, current_x, 0, text_width,
-                    ctx->height);
-            cairo_fill(ctx->cairo_t_shm);
+            cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.accent_color.r,
+                    ctx->render.accent_color.g, ctx->render.accent_color.b);
+            cairo_rectangle(ctx->render.cairo_t_shm, current_x, 0, text_width,
+                    ctx->wl.height);
+            cairo_fill(ctx->render.cairo_t_shm);
         }
 
-        cairo_set_source_rgb(ctx->cairo_t_shm, ctx->fg_color.r,
-                ctx->fg_color.g, ctx->fg_color.b);
-        cairo_move_to(ctx->cairo_t_shm, current_x,
-                (ctx->height - text_height) / 2);
-        pango_cairo_show_layout(ctx->cairo_t_shm, ctx->pango_layout);
+        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.fg_color.r,
+                ctx->render.fg_color.g, ctx->render.fg_color.b);
+        cairo_move_to(ctx->render.cairo_t_shm, current_x,
+                (ctx->wl.height - text_height) / 2);
+        pango_cairo_show_layout(ctx->render.cairo_t_shm, ctx->render.pango_layout);
         current_x += text_width;
 
-        if (i < ctx->workspace_count - 1) {
-            pango_layout_set_text(ctx->pango_layout, " | ", -1);
-            pango_layout_get_pixel_size(ctx->pango_layout, &text_width,
+        if (i < ctx->hypr.workspaces_count - 1) {
+            pango_layout_set_text(ctx->render.pango_layout, " | ", -1);
+            pango_layout_get_pixel_size(ctx->render.pango_layout, &text_width,
                     &text_height);
 
-            cairo_set_source_rgb(ctx->cairo_t_shm, ctx->fg_color.r * 0.6,
-                    ctx->fg_color.g * 0.6, ctx->fg_color.b * 0.6);
-            cairo_move_to(ctx->cairo_t_shm, current_x,
-                    (ctx->height - text_height) / 2);
-            pango_cairo_show_layout(ctx->cairo_t_shm, ctx->pango_layout);
+            cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.fg_color.r * 0.6,
+                    ctx->render.fg_color.g * 0.6, ctx->render.fg_color.b * 0.6);
+            cairo_move_to(ctx->render.cairo_t_shm, current_x,
+                    (ctx->wl.height - text_height) / 2);
+            pango_cairo_show_layout(ctx->render.cairo_t_shm, ctx->render.pango_layout);
             current_x += text_width;
         }
     }
 
-    ctx->left_width = current_x + padding;
+    ctx->render.left_width = current_x + ctx->render.padding;
 }
 
 
 
 // 2. MITTE: Aktive App zeichnen
 void draw_segment_center(struct app_context *ctx) {
-    if (ctx->center_width) {
-        cairo_rectangle(ctx->cairo_t_shm,
-                (ctx->width - ctx->center_width) / 2,
+    if (ctx->render.center_width) {
+        cairo_rectangle(ctx->render.cairo_t_shm,
+                (ctx->wl.width - ctx->render.center_width) / 2,
                 0,
-                ctx->center_width,
-                ctx->height);
-        cairo_set_source_rgb(ctx->cairo_t_shm, ctx->bg_color.r,
-                ctx->bg_color.g, ctx->bg_color.b);
-        cairo_fill(ctx->cairo_t_shm);
+                ctx->render.center_width,
+                ctx->wl.height);
+        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
+                ctx->render.bg_color.g, ctx->render.bg_color.b);
+        cairo_fill(ctx->render.cairo_t_shm);
     }
 
-     if (ctx->active_app && ctx->active_app[0] != '\0') {
-        int available_width = ctx->width - ctx->left_width -
-                ctx->right_width - (4 * padding);
-        pango_layout_set_single_paragraph_mode(ctx->pango_layout, TRUE);
-        pango_layout_set_width(ctx->pango_layout,
+     if (ctx->hypr.active_app[0] != '\0') {
+        int available_width = ctx->wl.width - ctx->render.left_width -
+                ctx->render.right_width - (4 * ctx->render.padding);
+        pango_layout_set_single_paragraph_mode(ctx->render.pango_layout, TRUE);
+        pango_layout_set_width(ctx->render.pango_layout,
                 available_width * PANGO_SCALE);
-        pango_layout_set_ellipsize(ctx->pango_layout, PANGO_ELLIPSIZE_MIDDLE);
+        pango_layout_set_ellipsize(ctx->render.pango_layout, PANGO_ELLIPSIZE_MIDDLE);
 
-        pango_layout_set_text(ctx->pango_layout, ctx->active_app, -1);
+        pango_layout_set_text(ctx->render.pango_layout, ctx->hypr.active_app, -1);
         int text_width = 0, text_height = 0;
 
-        pango_layout_get_pixel_size(ctx->pango_layout,
+        pango_layout_get_pixel_size(ctx->render.pango_layout,
                 &text_width, &text_height);
 
-        ctx->center_width = text_width + (2 * padding);
+        ctx->render.center_width = text_width + (2 * ctx->render.padding);
 
-        cairo_set_source_rgb(ctx->cairo_t_shm, ctx->fg_color.r,
-                ctx->fg_color.g, ctx->fg_color.b);
+        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.fg_color.r,
+                ctx->render.fg_color.g, ctx->render.fg_color.b);
 
-        cairo_move_to(ctx->cairo_t_shm,
-                (ctx->width - text_width) / 2,
-                (ctx->height - text_height) / 2);
-        pango_cairo_show_layout(ctx->cairo_t_shm, ctx->pango_layout);
+        cairo_move_to(ctx->render.cairo_t_shm,
+                (ctx->wl.width - text_width) / 2,
+                (ctx->wl.height - text_height) / 2);
+        pango_cairo_show_layout(ctx->render.cairo_t_shm, ctx->render.pango_layout);
 
-        pango_layout_set_width(ctx->pango_layout, -1);
-        pango_layout_set_single_paragraph_mode(ctx->pango_layout, FALSE);
-        pango_layout_set_ellipsize(ctx->pango_layout, PANGO_ELLIPSIZE_NONE);
+        pango_layout_set_width(ctx->render.pango_layout, -1);
+        pango_layout_set_single_paragraph_mode(ctx->render.pango_layout, FALSE);
+        pango_layout_set_ellipsize(ctx->render.pango_layout, PANGO_ELLIPSIZE_NONE);
     }
-    else ctx->center_width = 2*padding;
+    else ctx->render.center_width = 2*ctx->render.padding;
 }
 
 
 
 // 3. RECHTS: System-Infos zeichnen
 void draw_segment_right(struct app_context *ctx) {
-    if (ctx->right_width) {
-        cairo_rectangle(ctx->cairo_t_shm,
-                ctx->width - ctx->right_width,
+    if (ctx->render.right_width) {
+        cairo_rectangle(ctx->render.cairo_t_shm,
+                ctx->wl.width - ctx->render.right_width,
                 0,
-                ctx->right_width,
-                ctx->height);
-        cairo_set_source_rgb(ctx->cairo_t_shm, ctx->bg_color.r,
-                ctx->bg_color.g, ctx->bg_color.b);
-        cairo_fill(ctx->cairo_t_shm);
+                ctx->render.right_width,
+                ctx->wl.height);
+        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
+                ctx->render.bg_color.g, ctx->render.bg_color.b);
+        cairo_fill(ctx->render.cairo_t_shm);
     }
 
-    if (ctx->sys_time[0] == '\0') {
-        get_iso_time(ctx->sys_time, sizeof(ctx->sys_time));
-        get_ram_usage(ctx->sys_ram, sizeof(ctx->sys_ram));
-        get_battery_info(ctx->sys_bat, sizeof(ctx->sys_bat));
-        ctx->sys_cpu = get_cpu_load();
+    if (ctx->vitals.sys_time[0] == '\0') {
+        get_iso_time(ctx->vitals.sys_time, sizeof(ctx->vitals.sys_time));
+        get_ram_usage(ctx->vitals.sys_ram, sizeof(ctx->vitals.sys_ram));
+        get_battery_info(ctx->vitals.sys_bat, sizeof(ctx->vitals.sys_bat));
+        ctx->vitals.sys_cpu = get_cpu_load();
     }
 
     char right_bar_string[256];
-    if (strstr(ctx->sys_bat, "BAT N/A") != NULL) {
+    if (strstr(ctx->vitals.sys_bat, "BAT N/A") != NULL) {
         snprintf(right_bar_string, sizeof(right_bar_string),
                 "CPU: %d%% | %s | %s ",
-                 ctx->sys_cpu, ctx->sys_ram, ctx->sys_time);
+                 ctx->vitals.sys_cpu, ctx->vitals.sys_ram, ctx->vitals.sys_time);
     } else {
         snprintf(right_bar_string, sizeof(right_bar_string),
                 "CPU: %d%% | %s | %s | %s ",
-                 ctx->sys_cpu, ctx->sys_ram, ctx->sys_bat, ctx->sys_time);
+                 ctx->vitals.sys_cpu, ctx->vitals.sys_ram, ctx->vitals.sys_bat, ctx->vitals.sys_time);
     }
 
-    pango_layout_set_text(ctx->pango_layout, right_bar_string, -1);
+    pango_layout_set_text(ctx->render.pango_layout, right_bar_string, -1);
 
     int sys_width = 0, sys_height = 0;
-    pango_layout_get_pixel_size(ctx->pango_layout, &sys_width, &sys_height);
-    ctx->right_width = sys_width + padding;
+    pango_layout_get_pixel_size(ctx->render.pango_layout, &sys_width, &sys_height);
+    ctx->render.right_width = sys_width + ctx->render.padding;
 
-    int right_x = ctx->width - sys_width;
+    int right_x = ctx->wl.width - sys_width;
 
-    cairo_set_source_rgb(ctx->cairo_t_shm, ctx->fg_color.r * 0.6,
-            ctx->fg_color.g * 0.6, ctx->fg_color.b * 0.6);
-    cairo_move_to(ctx->cairo_t_shm, right_x, (ctx->height - sys_height) / 2);
-    pango_cairo_show_layout(ctx->cairo_t_shm, ctx->pango_layout);
+    cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.fg_color.r * 0.6,
+            ctx->render.fg_color.g * 0.6, ctx->render.fg_color.b * 0.6);
+    cairo_move_to(ctx->render.cairo_t_shm, right_x, (ctx->wl.height - sys_height) / 2);
+    pango_cairo_show_layout(ctx->render.cairo_t_shm, ctx->render.pango_layout);
 }
 
 
@@ -281,57 +295,57 @@ void draw_segment_right(struct app_context *ctx) {
 void draw_frame(struct app_context *ctx) {
     // --- PARTIAL RENDERING ---
     if (ctx->changed_segments == RENDER_ALL) {
-        cairo_rectangle(ctx->cairo_t_shm,
+        cairo_rectangle(ctx->render.cairo_t_shm,
             0,
             0,
-            ctx->width,
-            ctx->height);
-        cairo_set_source_rgb(ctx->cairo_t_shm, ctx->bg_color.r,
-                ctx->bg_color.g, ctx->bg_color.b);
-        cairo_fill(ctx->cairo_t_shm);
-        wl_surface_damage_buffer(ctx->surface,
+            ctx->wl.width,
+            ctx->wl.height);
+        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
+                ctx->render.bg_color.g, ctx->render.bg_color.b);
+        cairo_fill(ctx->render.cairo_t_shm);
+        wl_surface_damage_buffer(ctx->wl.surface,
                 0,
                 0,
-                ctx->width,
-                ctx->height);
+                ctx->wl.width,
+                ctx->wl.height);
     }
 
     if (ctx->changed_segments & RENDER_LEFT) {
-        int tmp_width = ctx->left_width;
+        int tmp_width = ctx->render.left_width;
         draw_segment_left(ctx);
-        if (tmp_width < ctx->left_width) tmp_width = ctx->left_width;
-        wl_surface_damage_buffer(ctx->surface,
+        if (tmp_width < ctx->render.left_width) tmp_width = ctx->render.left_width;
+        wl_surface_damage_buffer(ctx->wl.surface,
                 0,
                 0,
                 tmp_width,
-                ctx->height);
+                ctx->wl.height);
         ctx->changed_segments -= RENDER_LEFT;
     }
 
     if (ctx->changed_segments & RENDER_CENTER) {
-        int tmp_width = ctx->center_width;
+        int tmp_width = ctx->render.center_width;
         draw_segment_center(ctx);
-        if( tmp_width < ctx->center_width) tmp_width = ctx->center_width;
-        wl_surface_damage_buffer(ctx->surface,
-                (ctx->width - tmp_width)/2 ,
+        if( tmp_width < ctx->render.center_width) tmp_width = ctx->render.center_width;
+        wl_surface_damage_buffer(ctx->wl.surface,
+                (ctx->wl.width - tmp_width)/2 ,
                 0,
-                (ctx->width/2) + (tmp_width/2),
-                ctx->height);
+                (ctx->wl.width/2) + (tmp_width/2),
+                ctx->wl.height);
         ctx->changed_segments -= RENDER_CENTER;
     }
 
     if (ctx->changed_segments & RENDER_RIGHT) {
-        int tmp_width = ctx->right_width;
+        int tmp_width = ctx->render.right_width;
         draw_segment_right(ctx);
-        if( tmp_width < ctx->right_width) tmp_width = ctx->right_width;
-        wl_surface_damage_buffer(ctx->surface,
-            ctx->width-tmp_width,
+        if( tmp_width < ctx->render.right_width) tmp_width = ctx->render.right_width;
+        wl_surface_damage_buffer(ctx->wl.surface,
+            ctx->wl.width-tmp_width,
             0,
             tmp_width,
-            ctx->height);
+            ctx->wl.height);
         ctx->changed_segments -= RENDER_RIGHT;
     }
 
-    wl_surface_attach(ctx->surface, ctx->wl_buffer, 0, 0);
-    wl_surface_commit(ctx->surface);
+    wl_surface_attach(ctx->wl.surface, ctx->wl.buffer, 0, 0);
+    wl_surface_commit(ctx->wl.surface);
 }

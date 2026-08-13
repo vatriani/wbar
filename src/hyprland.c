@@ -81,15 +81,18 @@ int get_json_value(const char *json, const char *key, char *dest,
 
 
 void initial_hyprland_query(struct app_context *ctx) {
-    ctx->workspace_count = 0;
-    memset(ctx->workspaces, 0, sizeof(ctx->workspaces));
-    memset(ctx->workspace_windows, 0, sizeof(ctx->workspace_windows));
+    ctx->hypr.workspaces_count = 0;
+
+    for (int i = 0; i < MAX_WORKSPACES; ++i) {
+        ctx->hypr.workspaces[i].id = 0;
+        ctx->hypr.workspaces[i].window_count = 0;
+    }
 
     // 1. WORKSPACES PARSEN
     char *json_data = query_hyprland_ipc("workspaces");
     if (json_data) {
         char *ptr = json_data;
-        while ((ptr = strstr(ptr, "{")) != NULL && ctx->workspace_count < 32) {
+        while ((ptr = strstr(ptr, "{")) != NULL && ctx->hypr.workspaces_count < MAX_WORKSPACES) {
             char id_str[16] = {0};
             char win_str[16] = {0};
 
@@ -97,9 +100,9 @@ void initial_hyprland_query(struct app_context *ctx) {
             get_json_value(ptr, "windows", win_str, sizeof(win_str));
 
             if (id_str[0] != '\0') {
-                ctx->workspaces[ctx->workspace_count] = atoi(id_str);
-                ctx->workspace_windows[ctx->workspace_count] = atoi(win_str);
-                ctx->workspace_count++;
+                ctx->hypr.workspaces[ctx->hypr.workspaces_count].id = atoi(id_str);
+                ctx->hypr.workspaces[ctx->hypr.workspaces_count].window_count = atoi(win_str);
+                ctx->hypr.workspaces_count++;
             }
             ++ptr;
         }
@@ -110,11 +113,11 @@ void initial_hyprland_query(struct app_context *ctx) {
     // 2. ACTIVE WORKSPACE PARSEN
     json_data = query_hyprland_ipc("activeworkspace");
     if (json_data) {
-        get_json_value(json_data, "id", ctx->active_workspace, 10);
+        get_json_value(json_data, "id", ctx->hypr.active_workspace, 10);
 
-        if (ctx->active_workspace[0] == '\0') {
-            strncpy(ctx->active_workspace, json_data, 10);
-            ctx->active_workspace[strcspn(ctx->active_workspace,
+        if (ctx->hypr.active_workspace[0] == '\0') {
+            strncpy(ctx->hypr.active_workspace, json_data, 10);
+            ctx->hypr.active_workspace[strcspn(ctx->hypr.active_workspace,
                     "\r\n")] = '\0';
         }
         free(json_data);
@@ -131,18 +134,18 @@ void initial_hyprland_query(struct app_context *ctx) {
         get_json_value(json_data, "title", app_title, sizeof(app_title));
 
         if (app_class[0] != '\0') {
-            if (app_title[0] != '\0') snprintf(ctx->active_app, 1023,
+            if (app_title[0] != '\0') snprintf(ctx->hypr.active_app, MAX_APP_NAME_LENGTH -1,
                     "%s - %s", app_class, app_title);
-            else strncpy(ctx->active_app, app_class, 1023);
+            else strncpy(ctx->hypr.active_app, app_class, MAX_APP_NAME_LENGTH - 1);
         }
         else {
-            if (app_title[0] != '\0') strncpy(ctx->active_app, app_title, 1023);
-            else ctx->active_app[0] = '\0';
+            if (app_title[0] != '\0') strncpy(ctx->hypr.active_app, app_title, MAX_APP_NAME_LENGTH - 1);
+            else ctx->hypr.active_app[0] = '\0';
         }
         free(json_data);
         json_data = NULL;
     }
-    else ctx->active_app[0] = '\0';
+    else ctx->hypr.active_app[0] = '\0';
 }
 
 
@@ -225,17 +228,17 @@ void fetch_hyprland_colors(struct app_context *ctx) {
             double b = (hex_val & 0xFF) / 255.0;
 
             if (is_bg) {
-                ctx->bg_color.r = r;
-                ctx->bg_color.g = g;
-                ctx->bg_color.b = b;
+                ctx->render.bg_color.r = r;
+                ctx->render.bg_color.g = g;
+                ctx->render.bg_color.b = b;
             } else if (is_accent) {
-                ctx->accent_color.r = r;
-                ctx->accent_color.g = g;
-                ctx->accent_color.b = b;
+                ctx->render.accent_color.r = r;
+                ctx->render.accent_color.g = g;
+                ctx->render.accent_color.b = b;
             } else if (is_fg) {
-                ctx->fg_color.r = r;
-                ctx->fg_color.g = g;
-                ctx->fg_color.b = b;
+                ctx->render.fg_color.r = r;
+                ctx->render.fg_color.g = g;
+                ctx->render.fg_color.b = b;
             }
         }
     }
@@ -244,9 +247,9 @@ void fetch_hyprland_colors(struct app_context *ctx) {
 #ifdef DEBUG
     printf("[wbar] colors extracted from current.conf\n");
     printf("[wbar] -> BG:(%.2f, %.2f, %.2f) Accent:(%.2f, %.2f, %.2f) FG:(%.2f, %.2f, %.2f)\n",
-           ctx->bg_color.r, ctx->bg_color.g, ctx->bg_color.b,
-           ctx->accent_color.r, ctx->accent_color.g, ctx->accent_color.b,
-           ctx->fg_color.r, ctx->fg_color.g, ctx->fg_color.b);
+           ctx->render.bg_color.r, ctx->render.bg_color.g, ctx->render.bg_color.b,
+           ctx->render.accent_color.r, ctx->render.accent_color.g, ctx->render.accent_color.b,
+           ctx->render.fg_color.r, ctx->render.fg_color.g, ctx->render.fg_color.b);
     fflush(stdout);
 #endif
 }

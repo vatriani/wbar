@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
     initial_hyprland_query(ctx);
     init_rendering(ctx);
 
-    fds[0].fd = wl_display_get_fd(ctx->display);
+    fds[0].fd = wl_display_get_fd(ctx->wl.display);
     fds[0].events = POLLIN;
     fds[1].fd = hyprland_sock;
     fds[1].events = POLLIN;
@@ -58,22 +58,22 @@ int main(int argc, char **argv) {
     while (ctx->running) {
         if (!ctx->running) break;
         // 1: Wayland-Handshake
-        while (wl_display_prepare_read(ctx->display) != 0) {
-            if (wl_display_dispatch_pending(ctx->display) < 0) {
+        while (wl_display_prepare_read(ctx->wl.display) != 0) {
+            if (wl_display_dispatch_pending(ctx->wl.display) < 0) {
                 ctx->running = 0;
                 break;
             }
         }
 
-        if (wl_display_flush(ctx->display) < 0) {
-            wl_display_cancel_read(ctx->display);
+        if (wl_display_flush(ctx->wl.display) < 0) {
+            wl_display_cancel_read(ctx->wl.display);
             break;
         }
 
         // ERSTER START: Zeichne alles
-        if (ctx->configured && !ctx->initial_draw_done) {
+        if (ctx->wl.configured && !ctx->initial_draw_done) {
             draw_frame(ctx);
-            wl_display_flush(ctx->display);
+            wl_display_flush(ctx->wl.display);
             ctx->initial_draw_done = 1;
         }
 
@@ -81,37 +81,37 @@ int main(int argc, char **argv) {
         int ret = poll(fds, 2, 1000);
         if (ret < 0) {
             perror("poll error");
-            wl_display_cancel_read(ctx->display);
+            wl_display_cancel_read(ctx->wl.display);
             break;
         }
 
         // TIMEOUT ERREICHT (1 Sekunde ist um -> Uhrzeit/System-Update)
         if (ret == 0) {
-            wl_display_cancel_read(ctx->display);
+            wl_display_cancel_read(ctx->wl.display);
 
             // Hole Systemdaten
-            get_iso_time(ctx->sys_time, sizeof(ctx->sys_time));
-            get_ram_usage(ctx->sys_ram, sizeof(ctx->sys_ram));
-            get_battery_info(ctx->sys_bat, sizeof(ctx->sys_bat));
-            ctx->sys_cpu = get_cpu_load();
+            get_iso_time(ctx->vitals.sys_time, sizeof(ctx->vitals.sys_time));
+            get_ram_usage(ctx->vitals.sys_ram, sizeof(ctx->vitals.sys_ram));
+            get_battery_info(ctx->vitals.sys_bat, sizeof(ctx->vitals.sys_bat));
+            ctx->vitals.sys_cpu = get_cpu_load();
 
             if (ctx->initial_draw_done) {
                 ctx->changed_segments |= RENDER_RIGHT;
                 draw_frame(ctx);
-                wl_display_flush(ctx->display);
+                wl_display_flush(ctx->wl.display);
             }
             continue;
         }
 
         // 3: wayland event Handling
         if (fds[0].revents & POLLIN) {
-            if (wl_display_read_events(ctx->display) < 0) {
+            if (wl_display_read_events(ctx->wl.display) < 0) {
                 fprintf(stderr, "error at reading wayland events.\n");
                 break;
             }
-            if (wl_display_dispatch_pending(ctx->display) < 0) break;
+            if (wl_display_dispatch_pending(ctx->wl.display) < 0) break;
         } else
-            wl_display_cancel_read(ctx->display);
+            wl_display_cancel_read(ctx->wl.display);
 
         // 4: dynamic desktop-tracking
         if (fds[1].revents & POLLIN) {
@@ -135,14 +135,14 @@ int main(int argc, char **argv) {
                     if (data && *data != '\0') {
                         // A. ÄNDERUNG DES WORKSPACES -> Beeinflusst LINKS
                         if (strstr(line, "workspace>>") == line) {
-                            strncpy(ctx->active_workspace, data, 1023);
-                            ctx->active_workspace[strlen(data) < 1023 ? strlen(data) : 1023] = '\0';
+                            strncpy(ctx->hypr.active_workspace, data, MAX_APP_NAME_LENGTH - 1);
+                            ctx->hypr.active_workspace[strlen(data) < MAX_APP_NAME_LENGTH - 1 ? strlen(data) : MAX_APP_NAME_LENGTH -1] = '\0';
                             ctx->changed_segments |= RENDER_LEFT; // Gezielt links triggern
                         }
 
                         // B. ÄNDERUNG DES CODES / AKTIVE APP -> Beeinflusst MITTE
                         else if (strstr(line, "activewindow>>") == line) {
-                            parse_hyprland_app_name(data, ctx->active_app, 1024);
+                            parse_hyprland_app_name(data, ctx->hypr.active_app, MAX_APP_NAME_LENGTH);
                             ctx->changed_segments |= RENDER_CENTER; // Gezielt Mitte triggern
                         }
 
@@ -153,18 +153,18 @@ int main(int argc, char **argv) {
                                 int target_ws = atoi(ws_start + 1);
                                 int found = 0;
 
-                                for (unsigned short int i = 0; i < ctx->workspace_count; ++i) {
-                                    if (ctx->workspaces[i] == target_ws) {
-                                        ++ctx->workspace_windows[i];
+                                for (unsigned short int i = 0; i < ctx->hypr.workspaces_count; ++i) {
+                                    if (ctx->hypr.workspaces[i].id == target_ws) {
+                                        ++ctx->hypr.workspaces[i].window_count;
                                         found = 1;
                                         ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
                                         break;
                                     }
                                 }
-                                if (!found && ctx->workspace_count < 32) {
-                                    ctx->workspaces[ctx->workspace_count] = target_ws;
-                                    ctx->workspace_windows[ctx->workspace_count] = 1;
-                                    ++ctx->workspace_count;
+                                if (!found && ctx->hypr.workspaces_count < MAX_WORKSPACES) {
+                                    ctx->hypr.workspaces[ctx->hypr.workspaces_count].id = target_ws;
+                                    ctx->hypr.workspaces[ctx->hypr.workspaces_count].window_count = 1;
+                                    ++ctx->hypr.workspaces_count;
                                 }
                                 ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
                             }
@@ -186,14 +186,14 @@ int main(int argc, char **argv) {
                                     int win = 0;
 
                                     if (sscanf(p, "\"id\": %d", &id) == 1) {
-                                        ctx->workspaces[c] = id;
+                                        ctx->hypr.workspaces[c].id = id;
                                         char *w_p = strstr(p, "\"windows\":");
                                         if (w_p) sscanf(w_p, "\"windows\": %d", &win);
-                                        ctx->workspace_windows[c] = win; ++c;
+                                        ctx->hypr.workspaces[c].window_count = win; ++c;
                                     }
                                     p += 5;
                                 }
-                                ctx->workspace_count = c;
+                                ctx->hypr.workspaces_count = c;
                                 free(uj);
                                 ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
                             }
@@ -206,11 +206,11 @@ int main(int argc, char **argv) {
             if (ctx->changed_segments && ctx->initial_draw_done) {
 #ifdef DEBUG
                 printf("actual frame Workspace=%s, App=%s\n",
-                    ctx->active_workspace, ctx->active_app);
+                    ctx->hypr.active_workspace, ctx->hypr.active_app);
 #endif
                 fflush(stdout);
                 draw_frame(ctx);
-                wl_display_flush(ctx->display);
+                wl_display_flush(ctx->wl.display);
             }
         }
         if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) ||
@@ -229,63 +229,64 @@ int main(int argc, char **argv) {
 
 uint32_t setup_ctx(struct app_context *ctx) {
     ctx->running = 1;
-    ctx->width = 0;
-    ctx->height = 16;
-    ctx->configured = 0;
+    ctx->wl.width = 0;
+    ctx->wl.height = 16;
+    ctx->wl.configured = 0;
     ctx->initial_draw_done = 0;
-    ctx->active_workspace = calloc(1024, sizeof(char));
-    ctx->active_app = calloc(1024, sizeof(char));
-    ctx->font = calloc(1024, sizeof(char));
+    ctx->hypr.active_workspace = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
+    ctx->hypr.active_app = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
+    ctx->render.font = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
     ctx->changed_segments = RENDER_ALL;
-    ctx->left_width = 0;
-    ctx->center_width = 0;
-    ctx->right_width = 0;
-    ctx->bg_color.r = 0.117;
-    ctx->bg_color.g = 0.117;
-    ctx->bg_color.b = 0.180;
-    ctx->accent_color.r = 0.321;
-    ctx->accent_color.g = 0.443;
-    ctx->accent_color.b = 0.654;
-    ctx->fg_color.r = 0.9;
-    ctx->fg_color.g = 0.9;
-    ctx->fg_color.b = 0.9;
+    ctx->render.left_width = 0;
+    ctx->render.center_width = 0;
+    ctx->render.right_width = 0;
+    ctx->render.bg_color.r = 0.117;
+    ctx->render.bg_color.g = 0.117;
+    ctx->render.bg_color.b = 0.180;
+    ctx->render.accent_color.r = 0.321;
+    ctx->render.accent_color.g = 0.443;
+    ctx->render.accent_color.b = 0.654;
+    ctx->render.fg_color.r = 0.9;
+    ctx->render.fg_color.g = 0.9;
+    ctx->render.fg_color.b = 0.9;
+    ctx->render.padding = 5;
 
 
-    if (ctx->font) strcpy((char *)ctx->font, "DejaVu Sans 12");
-    ctx->display = wl_display_connect(NULL);
+    if (ctx->render.font) strcpy((char *)ctx->render.font, "DejaVu Sans 12");
+    ctx->wl.display = wl_display_connect(NULL);
 
-    if (!ctx->display) return 1;
+    if (!ctx->wl.display) return 1;
 
-    ctx->registry = wl_display_get_registry(ctx->display);
-    wl_registry_add_listener(ctx->registry, &registry_listener, ctx);
-    wl_display_roundtrip(ctx->display);
+    ctx->wl.registry = wl_display_get_registry(ctx->wl.display);
+    wl_registry_add_listener(ctx->wl.registry, &registry_listener, ctx);
+    wl_display_roundtrip(ctx->wl.display);
 
-    if (ctx->seat) wl_seat_add_listener(ctx->seat, &seat_listener, ctx);
+    if (ctx->wl.seat) wl_seat_add_listener(ctx->wl.seat, &seat_listener, ctx);
 
-    wl_display_roundtrip(ctx->display);
+    wl_display_roundtrip(ctx->wl.display);
 
-    if (!ctx->compositor || !ctx->layer_shell || !ctx->shm) {
+    if (!ctx->wl.compositor || !ctx->wl.layer_shell || !ctx->wl.shm) {
         fprintf(stderr, "Err: critical Wayland handler missing.\n");
-        wl_display_disconnect(ctx->display);
+        wl_display_disconnect(ctx->wl.display);
         return 1;
     }
 
-    ctx->surface = wl_compositor_create_surface(ctx->compositor);
-    ctx->layer_surface = zwlr_layer_shell_v1_get_layer_surface(ctx->layer_shell,
-            ctx->surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_TOP,"wbar");
+    ctx->wl.surface = wl_compositor_create_surface(ctx->wl.compositor);
+    ctx->wl.layer_surface = zwlr_layer_shell_v1_get_layer_surface(ctx->wl.layer_shell,
+            ctx->wl.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_TOP,"wbar");
 
     uint32_t anchors = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
             ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
             ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    zwlr_layer_surface_v1_set_anchor(ctx->layer_surface, anchors);
-    zwlr_layer_surface_v1_set_size(ctx->layer_surface, 0, ctx->height);
-    zwlr_layer_surface_v1_set_exclusive_zone(ctx->layer_surface, ctx->height);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(ctx->layer_surface, 0);
-    zwlr_layer_surface_v1_add_listener(ctx->layer_surface,
+    zwlr_layer_surface_v1_set_anchor(ctx->wl.layer_surface, anchors);
+    zwlr_layer_surface_v1_set_size(ctx->wl.layer_surface, 0, ctx->wl.height);
+    zwlr_layer_surface_v1_set_exclusive_zone(ctx->wl.layer_surface, ctx->wl.height);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(ctx->wl.layer_surface, 0);
+    zwlr_layer_surface_v1_add_listener(ctx->wl.layer_surface,
             &layer_surface_listener, ctx);
 
-    wl_surface_commit(ctx->surface);
-    wl_display_flush(ctx->display);
+    wl_surface_commit(ctx->wl.surface);
+    wl_display_flush(ctx->wl.display);
 
     return 0;
 }
@@ -293,23 +294,23 @@ uint32_t setup_ctx(struct app_context *ctx) {
 
 
 static void cleanup(struct app_context *ctx) {
-    if (ctx->surface) {
-        wl_surface_attach(ctx->surface, NULL, 0, 0);
-        wl_surface_commit(ctx->surface);
+    if (ctx->wl.surface) {
+        wl_surface_attach(ctx->wl.surface, NULL, 0, 0);
+        wl_surface_commit(ctx->wl.surface);
     }
 
-    wl_display_flush(ctx->display);
+    wl_display_flush(ctx->wl.display);
 
-    if (ctx->display)       wl_display_roundtrip(ctx->display);
-    if (ctx->seat)          wl_seat_destroy(ctx->seat);
-    if (ctx->layer_surface) zwlr_layer_surface_v1_destroy(ctx->layer_surface);
-    if (ctx->surface)       wl_surface_destroy(ctx->surface);
-    if (ctx->buffer)        wl_buffer_destroy(ctx->buffer);
-    if (ctx->display)       wl_display_disconnect(ctx->display);
+    if (ctx->wl.display)       wl_display_roundtrip(ctx->wl.display);
+    if (ctx->wl.seat)          wl_seat_destroy(ctx->wl.seat);
+    if (ctx->wl.layer_surface) zwlr_layer_surface_v1_destroy(ctx->wl.layer_surface);
+    if (ctx->wl.surface)       wl_surface_destroy(ctx->wl.surface);
+    if (ctx->wl.buffer)        wl_buffer_destroy(ctx->wl.buffer);
+    if (ctx->wl.display)       wl_display_disconnect(ctx->wl.display);
 
-    if (ctx->active_workspace) free(ctx->active_workspace);
-    if (ctx->active_app)       free(ctx->active_app);
-    if (ctx->font)             free(ctx->font);
+    if (ctx->hypr.active_workspace) free(ctx->hypr.active_workspace);
+    free(ctx->hypr.active_app);
+    if (ctx->render.font)             free(ctx->render.font);
 
     cleanup_rendering(ctx);
 }
