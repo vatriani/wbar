@@ -14,6 +14,8 @@
 int create_hyprland_socket(int *sock);
 void initial_hyprland_query(struct app_context *ctx);
 void fetch_hyprland_colors(struct app_context *ctx);
+
+int get_json_value(const char *json, const char *key, char *dest, size_t dest_size);
 char *query_hyprland_ipc(const char *command);
 void send_hyprland_cmd(const char *command);
 void parse_hyprland_app_name(const char *raw, char *dest, size_t dest_size);

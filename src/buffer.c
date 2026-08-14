@@ -202,14 +202,11 @@ void draw_segment_left(struct app_context *ctx) {
 // 2. MITTE: Aktive App zeichnen
 void draw_segment_center(struct app_context *ctx) {
     if (ctx->render.center_width) {
-        cairo_rectangle(ctx->render.cairo_t_shm,
+        segment_eraser(ctx,
                 (ctx->wl.width - ctx->render.center_width) / 2,
                 0,
                 ctx->render.center_width,
                 ctx->wl.height);
-        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
-                ctx->render.bg_color.g, ctx->render.bg_color.b);
-        cairo_fill(ctx->render.cairo_t_shm);
     }
 
      if (ctx->hypr.active_app[0] != '\0') {
@@ -248,14 +245,11 @@ void draw_segment_center(struct app_context *ctx) {
 // 3. RECHTS: System-Infos zeichnen
 void draw_segment_right(struct app_context *ctx) {
     if (ctx->render.right_width) {
-        cairo_rectangle(ctx->render.cairo_t_shm,
+        segment_eraser(ctx,
                 ctx->wl.width - ctx->render.right_width,
                 0,
                 ctx->render.right_width,
                 ctx->wl.height);
-        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
-                ctx->render.bg_color.g, ctx->render.bg_color.b);
-        cairo_fill(ctx->render.cairo_t_shm);
     }
 
     if (ctx->vitals.sys_time[0] == '\0') {
@@ -295,14 +289,11 @@ void draw_segment_right(struct app_context *ctx) {
 void draw_frame(struct app_context *ctx) {
     // --- PARTIAL RENDERING ---
     if (ctx->changed_segments == RENDER_ALL) {
-        cairo_rectangle(ctx->render.cairo_t_shm,
+        segment_eraser(ctx,
             0,
             0,
             ctx->wl.width,
             ctx->wl.height);
-        cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
-                ctx->render.bg_color.g, ctx->render.bg_color.b);
-        cairo_fill(ctx->render.cairo_t_shm);
         wl_surface_damage_buffer(ctx->wl.surface,
                 0,
                 0,
