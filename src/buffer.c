@@ -101,16 +101,13 @@ void cleanup_rendering(struct app_context *ctx) {
  * Berücksichtigt nur die tatsächlich aktiven Workspaces.
  */
 void sort_workspaces(struct workspace workspaces[MAX_WORKSPACES], int count) {
-    if (!workspaces || count <= 1) {
-        return;
-    }
+    if (!workspaces || count <= 1) return;
     // Flag zur vorzeitigen Terminierung (Optimierung: Falls bereits sortiert)
     int swapped;
     for (int i = 0; i < count - 1; ++i) {
         swapped = 0;
         for (int j = 0; j < count - i - 1; ++j) {
             if (workspaces[j].id > workspaces[j + 1].id) {
-                // Einziger, atomarer Struct-Swap im RAM
                 struct workspace temp = workspaces[j];
                 workspaces[j] = workspaces[j + 1];
                 workspaces[j + 1] = temp;
@@ -118,9 +115,7 @@ void sort_workspaces(struct workspace workspaces[MAX_WORKSPACES], int count) {
             }
         }
         // Wenn in einem Durchlauf nichts getauscht wurde, ist das Array fertig!
-        if (!swapped) {
-            break;
-        }
+        if (!swapped) break;
     }
 }
 
@@ -203,10 +198,8 @@ void draw_segment_left(struct app_context *ctx) {
 void draw_segment_center(struct app_context *ctx) {
     if (ctx->render.center_width) {
         segment_eraser(ctx,
-                (ctx->wl.width - ctx->render.center_width) / 2,
-                0,
-                ctx->render.center_width,
-                ctx->wl.height);
+                (ctx->wl.width - ctx->render.center_width) / 2, 0,
+                ctx->render.center_width, ctx->wl.height);
     }
 
      if (ctx->hypr.active_app[0] != '\0') {
@@ -246,10 +239,8 @@ void draw_segment_center(struct app_context *ctx) {
 void draw_segment_right(struct app_context *ctx) {
     if (ctx->render.right_width) {
         segment_eraser(ctx,
-                ctx->wl.width - ctx->render.right_width,
-                0,
-                ctx->render.right_width,
-                ctx->wl.height);
+                ctx->wl.width - ctx->render.right_width, 0,
+                ctx->render.right_width, ctx->wl.height);
     }
 
     if (ctx->vitals.sys_time[0] == '\0') {
@@ -287,18 +278,10 @@ void draw_segment_right(struct app_context *ctx) {
 
 
 void draw_frame(struct app_context *ctx) {
-    // --- PARTIAL RENDERING ---
     if (ctx->changed_segments == RENDER_ALL) {
-        segment_eraser(ctx,
-            0,
-            0,
-            ctx->wl.width,
-            ctx->wl.height);
+        segment_eraser(ctx, 0, 0, ctx->wl.width, ctx->wl.height);
         wl_surface_damage_buffer(ctx->wl.surface,
-                0,
-                0,
-                ctx->wl.width,
-                ctx->wl.height);
+                0, 0, ctx->wl.width, ctx->wl.height);
     }
 
     if (ctx->changed_segments & RENDER_LEFT) {
@@ -306,10 +289,7 @@ void draw_frame(struct app_context *ctx) {
         draw_segment_left(ctx);
         if (tmp_width < ctx->render.left_width) tmp_width = ctx->render.left_width;
         wl_surface_damage_buffer(ctx->wl.surface,
-                0,
-                0,
-                tmp_width,
-                ctx->wl.height);
+                0, 0, tmp_width, ctx->wl.height);
         ctx->changed_segments -= RENDER_LEFT;
     }
 
@@ -318,10 +298,8 @@ void draw_frame(struct app_context *ctx) {
         draw_segment_center(ctx);
         if( tmp_width < ctx->render.center_width) tmp_width = ctx->render.center_width;
         wl_surface_damage_buffer(ctx->wl.surface,
-                (ctx->wl.width - tmp_width)/2 ,
-                0,
-                (ctx->wl.width/2) + (tmp_width/2),
-                ctx->wl.height);
+                (ctx->wl.width - tmp_width)/2, 0,
+                (ctx->wl.width/2) + (tmp_width/2), ctx->wl.height);
         ctx->changed_segments -= RENDER_CENTER;
     }
 
@@ -330,10 +308,7 @@ void draw_frame(struct app_context *ctx) {
         draw_segment_right(ctx);
         if( tmp_width < ctx->render.right_width) tmp_width = ctx->render.right_width;
         wl_surface_damage_buffer(ctx->wl.surface,
-            ctx->wl.width-tmp_width,
-            0,
-            tmp_width,
-            ctx->wl.height);
+            ctx->wl.width-tmp_width, 0, tmp_width, ctx->wl.height);
         ctx->changed_segments -= RENDER_RIGHT;
     }
 

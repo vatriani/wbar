@@ -27,7 +27,7 @@ int setup_ctx(struct app_context *ctx);
 void cleanup(struct app_context *ctx);
 static void handle_timeout(struct app_context *ctx);
 static void handle_wayland_events(struct app_context *ctx, struct pollfd *fds);
-static void handle_hyprland_events(struct app_context *ctx, struct pollfd *hyprland_fd);
+static void handle_hyprland_events(struct app_context *ctx,struct pollfd *fd);
 static void process_hyprland_event(struct app_context *ctx, const char *line);
 
 
@@ -59,8 +59,6 @@ int main(int argc, char **argv) {
 
 // main program loop
     while (ctx->running) {
-        if (!ctx->running) break;
-
         // 1: Wayland-Handshake
         while (wl_display_prepare_read(ctx->wl.display) != 0) {
             if (wl_display_dispatch_pending(ctx->wl.display) < 0) {
@@ -82,7 +80,7 @@ int main(int argc, char **argv) {
         }
 
         // 2: Poll for events
-        int ret = poll(fds, 2, 1000);
+        int ret = poll(fds, 2, DEF_SYS_VITAL_POLL_MS);
         if (ret < 0) {
             perror("poll error");
             wl_display_cancel_read(ctx->wl.display);
@@ -138,27 +136,22 @@ static void handle_wayland_events(struct app_context *ctx, struct pollfd *fds) {
             ctx->running = 0;
             return;
         }
-    } else {
-        wl_display_cancel_read(ctx->wl.display);
     }
+    else wl_display_cancel_read(ctx->wl.display);
 }
 
 
 
-static void handle_hyprland_events(struct app_context *ctx, struct pollfd *hyprland_fd) {
+static void handle_hyprland_events(struct app_context *ctx,
+        struct pollfd *hyprland_fd) {
     char ipc_buffer[16384];
 
-    if (!(hyprland_fd->revents & POLLIN)) {
-        return;
-    }
+    if (!(hyprland_fd->revents & POLLIN)) return;
 
     ssize_t len = recv(hyprland_fd->fd, ipc_buffer, sizeof(ipc_buffer) - 1, 0);
     if (len <= 0) {
-        if (len == 0) {
-            fprintf(stderr, "hyprland closed the connection.\n");
-        } else {
-            perror("recv(hyprland)");
-        }
+        if (len == 0) fprintf(stderr, "hyprland closed the connection.\n");
+        else perror("recv(hyprland)");
         ctx->running = 0;
         return;
     }
@@ -196,7 +189,8 @@ static void process_hyprland_event(struct app_context *ctx, const char *line) {
     // A. Workspace change
     if (strstr(line, "workspace>>") == line) {
         strncpy(ctx->hypr.active_workspace, data, MAX_APP_NAME_LENGTH - 1);
-        ctx->hypr.active_workspace[strlen(data) < MAX_APP_NAME_LENGTH - 1 ? strlen(data) : MAX_APP_NAME_LENGTH - 1] = '\0';
+        ctx->hypr.active_workspace[strlen(data) < MAX_APP_NAME_LENGTH - 1 ?
+                strlen(data) : MAX_APP_NAME_LENGTH - 1] = '\0';
         ctx->changed_segments |= RENDER_LEFT;
         return;
     }
@@ -215,7 +209,7 @@ static void process_hyprland_event(struct app_context *ctx, const char *line) {
             int target_ws = atoi(ws_start + 1);
             int found = 0;
 
-            for (unsigned short int i = 0; i < ctx->hypr.workspaces_count; ++i) {
+            for (int i = 0; i < ctx->hypr.workspaces_count; ++i) {
                 if (ctx->hypr.workspaces[i].id == target_ws) {
                     ++ctx->hypr.workspaces[i].window_count;
                     found = 1;
@@ -230,7 +224,6 @@ static void process_hyprland_event(struct app_context *ctx, const char *line) {
             }
             ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
         }
-        return;
     }
 
     // E. Hard refresh via JSON
@@ -239,26 +232,23 @@ static void process_hyprland_event(struct app_context *ctx, const char *line) {
         strstr(line, "closewindow>>") == line ||
         strstr(line, "movewindowv2>>") == line) {
 
-        char *uj = query_hyprland_ipc("workspaces");
-        if (uj) {
-            char *p = uj;
-            int c = 0;
-
-            while ((p = strstr(p, "\"id\":")) != NULL && c < 32) {
-                int id = 0;
-                int win = 0;
-
-                if (sscanf(p, "\"id\": %d", &id) == 1) {
-                    ctx->hypr.workspaces[c].id = id;
-                    char *w_p = strstr(p, "\"windows\":");
-                    if (w_p) sscanf(w_p, "\"windows\": %d", &win);
-                    ctx->hypr.workspaces[c].window_count = win;
-                    ++c;
+        char *json_data = query_hyprland_ipc("workspaces");
+        if (json_data) {
+            char *ptr = json_data;
+            ctx->hypr.workspaces_count = 0;
+            while ((ptr = strstr(ptr, "{")) != NULL && ctx->hypr.workspaces_count < MAX_WORKSPACES) {
+                char id_str[16] = {0};
+                char win_str[16] = {0};
+                get_json_value(ptr, "id", id_str, sizeof(id_str));
+                get_json_value(ptr, "windows", win_str, sizeof(win_str));
+                if (id_str[0] != '\0') {
+                    ctx->hypr.workspaces[ctx->hypr.workspaces_count].id = atoi(id_str);
+                    ctx->hypr.workspaces[ctx->hypr.workspaces_count].window_count = atoi(win_str);
+                    ctx->hypr.workspaces_count++;
                 }
-                p += 5;
+                ++ptr;
             }
-            ctx->hypr.workspaces_count = c;
-            free(uj);
+            free(json_data);
             ctx->changed_segments |= RENDER_LEFT + RENDER_CENTER;
         }
     }
@@ -269,7 +259,6 @@ static void process_hyprland_event(struct app_context *ctx, const char *line) {
 int setup_ctx(struct app_context *ctx) {
     ctx->running = 1;
     ctx->wl.width = 0;
-    ctx->wl.height = 16;
     ctx->wl.configured = 0;
     ctx->initial_draw_done = 0;
     ctx->hypr.active_workspace = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
@@ -279,19 +268,20 @@ int setup_ctx(struct app_context *ctx) {
     ctx->render.left_width = 0;
     ctx->render.center_width = 0;
     ctx->render.right_width = 0;
-    ctx->render.bg_color.r = 0.117;
-    ctx->render.bg_color.g = 0.117;
-    ctx->render.bg_color.b = 0.180;
-    ctx->render.accent_color.r = 0.321;
-    ctx->render.accent_color.g = 0.443;
-    ctx->render.accent_color.b = 0.654;
-    ctx->render.fg_color.r = 0.9;
-    ctx->render.fg_color.g = 0.9;
-    ctx->render.fg_color.b = 0.9;
-    ctx->render.padding = 5;
 
+    ctx->render.bg_color.r = DEF_BG_COL_R;
+    ctx->render.bg_color.g = DEF_BG_COL_G;
+    ctx->render.bg_color.b = DEF_BG_COL_B;
+    ctx->render.accent_color.r = DEF_ACC_COL_R;
+    ctx->render.accent_color.g = DEF_ACC_COL_G;
+    ctx->render.accent_color.b = DEF_ACC_COL_B;
+    ctx->render.fg_color.r = DEF_FG_COL_R;
+    ctx->render.fg_color.g = DEF_FG_COL_G;
+    ctx->render.fg_color.b = DEF_FG_COL_B;
+    ctx->render.padding = DEF_PADDING;
+    ctx->wl.height = DEF_BAR_HEIGHT;
 
-    if (ctx->render.font) strcpy((char *)ctx->render.font, "DejaVu Sans 12");
+    if (ctx->render.font) strcpy((char *)ctx->render.font, DEF_FONT);
     ctx->wl.display = wl_display_connect(NULL);
 
     if (!ctx->wl.display) return 1;
@@ -340,16 +330,15 @@ void cleanup(struct app_context *ctx) {
 
     wl_display_flush(ctx->wl.display);
 
-    if (ctx->wl.display)       wl_display_roundtrip(ctx->wl.display);
-    if (ctx->wl.seat)          wl_seat_destroy(ctx->wl.seat);
+    if (ctx->wl.display) wl_display_roundtrip(ctx->wl.display);
+    if (ctx->wl.seat) wl_seat_destroy(ctx->wl.seat);
     if (ctx->wl.layer_surface) zwlr_layer_surface_v1_destroy(ctx->wl.layer_surface);
-    if (ctx->wl.surface)       wl_surface_destroy(ctx->wl.surface);
-    if (ctx->wl.buffer)        wl_buffer_destroy(ctx->wl.buffer);
-    if (ctx->wl.display)       wl_display_disconnect(ctx->wl.display);
-
+    if (ctx->wl.surface) wl_surface_destroy(ctx->wl.surface);
+    if (ctx->wl.buffer) wl_buffer_destroy(ctx->wl.buffer);
+    if (ctx->wl.display) wl_display_disconnect(ctx->wl.display);
     if (ctx->hypr.active_workspace) free(ctx->hypr.active_workspace);
     free(ctx->hypr.active_app);
-    if (ctx->render.font)             free(ctx->render.font);
+    if (ctx->render.font) free(ctx->render.font);
 
     cleanup_rendering(ctx);
 }
