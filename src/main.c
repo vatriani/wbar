@@ -39,8 +39,9 @@ int main(int argc, char **argv) {
     struct pollfd fds[2];
     struct app_context *ctx = &stack_ctx;
     memset(ctx, 0, sizeof(struct app_context));
-
-  //  if (checkIfRunning()) return 0;
+#ifndef DEBUG
+    if (checkIfRunning()) return 0;
+#endif
     zombieProtect();
     config_fill_defaults(ctx);
 
