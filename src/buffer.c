@@ -96,9 +96,6 @@ void cleanup_rendering(struct app_context *ctx) {
 
 
 
-/**
- * Vergleichsfunktion für qsort
- */
 static int compare_workspaces(const void *a, const void *b) {
     const workspace *ws_a = (const workspace *)a;
     const workspace *ws_b = (const workspace *)b;
@@ -109,18 +106,15 @@ static int compare_workspaces(const void *a, const void *b) {
 }
 
 
-/**
- * Sortiert das Workspace-Array aufsteigend nach der Workspace-ID.
- * Nutzt qsort für optimale Performance.
- */
-void sort_workspaces(workspace workspaces[MAX_WORKSPACES], int count) {
+
+static void sort_workspaces(workspace workspaces[MAX_WORKSPACES], int count) {
     if (!workspaces || count <= 1) return;
     qsort(workspaces, count, sizeof(workspace), compare_workspaces);
 }
 
 
 
-void segment_eraser(struct app_context *ctx, int x, int y, int width, int height) {
+static void segment_eraser(struct app_context *ctx, int x, int y, int width, int height) {
     cairo_rectangle(ctx->render.cairo_t_shm, x, y, width, height);
     cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
             ctx->render.bg_color.g, ctx->render.bg_color.b);
@@ -130,7 +124,7 @@ void segment_eraser(struct app_context *ctx, int x, int y, int width, int height
 
 
 // 1. LINKS: Workspaces zeichnen
-void draw_segment_left(struct app_context *ctx) {
+static void draw_segment_left(struct app_context *ctx) {
     if (ctx->render.left_width)
         segment_eraser(ctx, 0, 0, ctx->render.left_width, ctx->wl.height);
 
@@ -138,8 +132,7 @@ void draw_segment_left(struct app_context *ctx) {
     memcpy(sorted_ws, ctx->hypr.workspaces, sizeof(workspace)*ctx->hypr.workspaces_count);
     sort_workspaces(sorted_ws, ctx->hypr.workspaces_count);
 
-
-    // 3. DER EINZIGE ZEICHEN-DURCHLAUF (Direkt messen und malen)
+// 3. DER EINZIGE ZEICHEN-DURCHLAUF (Direkt messen und malen)
     int current_x = ctx->render.padding;
     int text_width = 0, text_height = 0;
     int divider_width = 0, divider_height = 0;
@@ -198,7 +191,7 @@ void draw_segment_left(struct app_context *ctx) {
 
 
 // 2. MITTE: Aktive App zeichnen
-void draw_segment_center(struct app_context *ctx) {
+static void draw_segment_center(struct app_context *ctx) {
     if (ctx->render.center_width) {
         segment_eraser(ctx,
                 (ctx->wl.width - ctx->render.center_width) / 2, 0,
@@ -239,7 +232,7 @@ void draw_segment_center(struct app_context *ctx) {
 
 
 // 3. RECHTS: System-Infos zeichnen
-void draw_segment_right(struct app_context *ctx) {
+static void draw_segment_right(struct app_context *ctx) {
     if (ctx->render.right_width) {
         segment_eraser(ctx,
                 ctx->wl.width - ctx->render.right_width, 0,
@@ -323,10 +316,10 @@ void draw_frame(struct app_context *ctx) {
 
 
 
-struct color rgb_to_double(char *tmp) {
+color rgb_to_double(char *tmp) {
     unsigned int hex_val = 0;
     char hex_tmp[7] = {0};
-    struct color ret;
+    color ret;
 
     if (tmp[0] == '#') strncpy(hex_tmp, tmp+1, 6);
     else strncpy(hex_tmp, tmp, 6);

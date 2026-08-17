@@ -17,6 +17,6 @@
 int init_rendering(struct app_context *ctx);
 void cleanup_rendering(struct app_context *ctx);
 void draw_frame(struct app_context *ctx);
-struct color rgb_to_double(char *tmp);
+color rgb_to_double(char *tmp);
 
 #endif

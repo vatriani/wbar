@@ -49,8 +49,8 @@ typedef enum {
 } render_segments_t;
 
 
-
-struct color {
+typedef struct color_t color;
+struct color_t {
     double r;
     double g;
     double b;
@@ -87,9 +87,9 @@ struct render_context {
     PangoLayout          *pango_layout;
     PangoFontDescription *pango_font_desc;
 
-    struct color          bg_color;
-    struct color          fg_color;
-    struct color          accent_color;
+    color                 bg_color;
+    color                 fg_color;
+    color                 accent_color;
     int                   padding;
     char                 *font;
     int                   left_width;
