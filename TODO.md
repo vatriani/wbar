@@ -3,7 +3,7 @@ in the code. This file is a placeholder for future ideas, features and not
 localized bugs. This format works with doxygen and lite-xl todo-plugin.
 
 # todo
-TODO - placeholder -
+TODO - document the whole project
 
 # improvements
 IMPROVEMENT - placeholder -
