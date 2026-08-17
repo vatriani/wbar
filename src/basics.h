@@ -9,9 +9,18 @@
 #ifndef BASICS_H
 #define BASICS_H
 
+#define _GNU_SOURCE
+
+#include "basics-t.h"
 #include "types.h"
 
 
+#define MAX_PATH 1024
+#define MAX_CONFIG_LINE_LENGTH 256
+
+int configLoad(config_file *cf);
+void configFree(config_file *cfg);
+char* configGetValueFromName(config_file *cf, const char *name);
 
 /**
  * @brief Checks if the programm runns already to prevent double instances.
@@ -21,7 +30,7 @@
  *
  * @return 0 == this is the first instance. 1 == another instance is found
  */
-unsigned int checkIfRunning();
+int checkIfRunning();
 
 /**
  * @brief Simple zombie protection for this programm

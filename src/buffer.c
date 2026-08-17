@@ -315,3 +315,21 @@ void draw_frame(struct app_context *ctx) {
     wl_surface_attach(ctx->wl.surface, ctx->wl.buffer, 0, 0);
     wl_surface_commit(ctx->wl.surface);
 }
+
+
+
+struct color rgb_to_double(char *tmp) {
+    unsigned int hex_val = 0;
+    char hex_tmp[7] = {0};
+    struct color ret;
+
+    if (tmp[0] == '#') strncpy(hex_tmp, tmp+1, 6);
+    else strncpy(hex_tmp, tmp, 6);
+
+    if (sscanf(hex_tmp, "%x", &hex_val) == 1) {
+        ret.r = ((hex_val >> 16) & 0xFF) / 255.0;
+        ret.g = ((hex_val >> 8) & 0xFF) / 255.0;
+        ret.b = (hex_val & 0xFF) / 255.0;
+    }
+    return ret;
+}

@@ -180,6 +180,7 @@ int create_hyprland_socket(int *sock) {
 }
 
 
+
 void fetch_hyprland_colors(struct app_context *ctx) {
     const char *conf_path = "~/.config/hypr/scheme/current.conf";
     wordexp_t exp_result;
@@ -256,7 +257,6 @@ void fetch_hyprland_colors(struct app_context *ctx) {
 
 
 
-
 char *query_hyprland_ipc(const char *command) {
     char *sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
     if (!sig) return NULL;
@@ -288,7 +288,7 @@ char *query_hyprland_ipc(const char *command) {
     if (!res_buf) { close(sock); return NULL; }
 
     size_t total_read = 0;
-    char chunk[1024];
+    char chunk[MAX_APP_NAME_LENGTH];
     ssize_t bytes_read;
 
     while ((bytes_read = read(sock, chunk, sizeof(chunk))) > 0) {
@@ -339,7 +339,7 @@ void parse_hyprland_app_name(const char *raw_data, char *dest,
         size_t dest_size) {
     if (!raw_data || !dest || dest_size == 0) return;
 
-    char temp[1024];
+    char temp[MAX_APP_NAME_LENGTH];
     strncpy(temp, raw_data, sizeof(temp) - 1);
     temp[sizeof(temp) - 1] = '\0';
 

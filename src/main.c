@@ -23,13 +23,14 @@
 
 
 // forward declaration
-int setup_ctx(struct app_context *ctx);
-void cleanup(struct app_context *ctx);
+static void config_fill_defaults(struct app_context *ctx);
+static int setup_ctx(struct app_context *ctx);
+static void cleanup(struct app_context *ctx);
 static void handle_timeout(struct app_context *ctx);
 static void handle_wayland_events(struct app_context *ctx, struct pollfd *fds);
 static void handle_hyprland_events(struct app_context *ctx,struct pollfd *fd);
 static void process_hyprland_event(struct app_context *ctx, const char *line);
-
+static void setConfigValues(struct app_context *ctx);
 
 
 int main(int argc, char **argv) {
@@ -39,11 +40,17 @@ int main(int argc, char **argv) {
     struct app_context *ctx = &stack_ctx;
     memset(ctx, 0, sizeof(struct app_context));
 
-    if (checkIfRunning()) return 0;
+  //  if (checkIfRunning()) return 0;
     zombieProtect();
+    config_fill_defaults(ctx);
+
+    if (configLoad(&ctx->config) == 0) {
+        setConfigValues(ctx);
+        configFree(&ctx->config);
+    }
     if (setup_ctx(ctx)) return 0;
-    fetch_hyprland_colors(ctx);
     if (optHandling(argc, argv, ctx)) return 0;
+
     create_hyprland_socket(&hyprland_sock);
     initial_hyprland_query(ctx);
     init_rendering(ctx);
@@ -54,8 +61,8 @@ int main(int argc, char **argv) {
     fds[1].events = POLLIN;
 #ifdef DEBUG
     printf("init done. starting main-loop\n");
-#endif
     fflush(stdout);
+#endif
 
 // main program loop
     while (ctx->running) {
@@ -256,19 +263,18 @@ static void process_hyprland_event(struct app_context *ctx, const char *line) {
 
 
 
-int setup_ctx(struct app_context *ctx) {
-    ctx->running = 1;
-    ctx->wl.width = 0;
-    ctx->wl.configured = 0;
-    ctx->initial_draw_done = 0;
-    ctx->hypr.active_workspace = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
-    ctx->hypr.active_app = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
-    ctx->render.font = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
-    ctx->changed_segments = RENDER_ALL;
-    ctx->render.left_width = 0;
-    ctx->render.center_width = 0;
-    ctx->render.right_width = 0;
+static void setConfigValues(struct app_context *ctx) {
+    ctx->render.padding = atoi(configGetValueFromName(&ctx->config, "padding"));
+    strncpy(ctx->render.font, configGetValueFromName(&ctx->config, "font"),MAX_APP_NAME_LENGTH);
+    ctx->render.bg_color =  rgb_to_double(configGetValueFromName(&ctx->config, "bg_color"));
+    ctx->render.fg_color =  rgb_to_double(configGetValueFromName(&ctx->config, "fg_color"));
+    ctx->render.accent_color =  rgb_to_double(configGetValueFromName(&ctx->config, "ac_color"));
+    ctx->wl.height = atoi(configGetValueFromName(&ctx->config, "bar_height"));
+}
 
+
+
+static void config_fill_defaults(struct app_context *ctx) {
     ctx->render.bg_color.r = DEF_BG_COL_R;
     ctx->render.bg_color.g = DEF_BG_COL_G;
     ctx->render.bg_color.b = DEF_BG_COL_B;
@@ -281,7 +287,23 @@ int setup_ctx(struct app_context *ctx) {
     ctx->render.padding = DEF_PADDING;
     ctx->wl.height = DEF_BAR_HEIGHT;
 
-    if (ctx->render.font) strcpy((char *)ctx->render.font, DEF_FONT);
+    ctx->render.font = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
+    if (ctx->render.font) strcpy(ctx->render.font, DEF_FONT);
+}
+
+
+
+static int setup_ctx(struct app_context *ctx) {
+    ctx->running = 1;
+    ctx->wl.width = 0;
+    ctx->wl.configured = 0;
+    ctx->initial_draw_done = 0;
+    ctx->hypr.active_workspace = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
+    ctx->hypr.active_app = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
+    ctx->changed_segments = RENDER_ALL;
+    ctx->render.left_width = 0;
+    ctx->render.center_width = 0;
+    ctx->render.right_width = 0;
     ctx->wl.display = wl_display_connect(NULL);
 
     if (!ctx->wl.display) return 1;
@@ -322,7 +344,7 @@ int setup_ctx(struct app_context *ctx) {
 
 
 
-void cleanup(struct app_context *ctx) {
+static void cleanup(struct app_context *ctx) {
     if (ctx->wl.surface) {
         wl_surface_attach(ctx->wl.surface, NULL, 0, 0);
         wl_surface_commit(ctx->wl.surface);
