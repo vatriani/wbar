@@ -99,8 +99,6 @@ int configParse(config_file *cfg, FILE **file) {
             if (tup) free(tup);
             return -1;  // oder error handling
         }
-        tup->name = strdup(name);
-        tup->value = strdup(value);
 
         if (cfg->conf.pfVectorAdd(&cfg->conf, tup)) return -1;
     }
@@ -126,7 +124,8 @@ int configLoad(config_file *cf) {
         return -1;
     }
 
-    strncat(filepath, filename, strlen(filename)+1);
+    snprintf(filepath + strlen(filepath), MAX_PATH - strlen(filepath),
+            "%s", filename);
 
     FILE *file = fopen(filepath, "r");
 

@@ -21,7 +21,7 @@
 
 
 // forward declaration
-static void config_fill_defaults(struct app_context *ctx);
+static int config_fill_defaults(struct app_context *ctx);
 static int setup_ctx(struct app_context *ctx);
 static void cleanup(struct app_context *ctx);
 static void handle_timeout(struct app_context *ctx);
@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
 #endif
     zombieProtect();
 
-    config_fill_defaults(ctx);
+    if (config_fill_defaults(ctx)) return -1;
     if (configLoad(&ctx->config)) {
         setConfigValues(ctx);
         configFree(&ctx->config);
@@ -295,7 +295,7 @@ static void setConfigValues(struct app_context *ctx) {
 
 
 
-static void config_fill_defaults(struct app_context *ctx) {
+static int config_fill_defaults(struct app_context *ctx) {
     ctx->render.bg_color.r = DEF_BG_COL_R;
     ctx->render.bg_color.g = DEF_BG_COL_G;
     ctx->render.bg_color.b = DEF_BG_COL_B;
@@ -309,7 +309,10 @@ static void config_fill_defaults(struct app_context *ctx) {
     ctx->wl.height = DEF_BAR_HEIGHT;
 
     ctx->render.font = calloc(MAX_APP_NAME_LENGTH, sizeof(char));
+    if (!ctx->render.font) return -1;
     if (ctx->render.font) strcpy(ctx->render.font, DEF_FONT);
+
+    return 0;
 }
 
 
