@@ -1,3 +1,5 @@
+#include "sys-vitals.h"
+
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -5,13 +7,8 @@
 
 
 
-void get_battery_info(char *dest, size_t max_len) {
-    FILE *f_cap = fopen("/sys/class/power_supply/BAT0/capacity", "r");
-    FILE *f_stat = fopen("/sys/class/power_supply/BAT0/status", "r");
-
-    if (!f_cap || !f_stat) {
-        if (f_cap) fclose(f_cap);
-        if (f_stat) fclose(f_stat);
+void get_battery_info(sys_vitals *ctx, char *dest, size_t max_len) {
+    if (!ctx->bat_available) {
         snprintf(dest, max_len, "BAT N/A");
         return;
     }
@@ -19,12 +16,15 @@ void get_battery_info(char *dest, size_t max_len) {
     int capacity = 0;
     char status[32] = {0};
 
-    if (fscanf(f_cap, "%d", &capacity) != 1) capacity = 0;
-    if (fgets(status, sizeof(status) - 1, f_stat) == NULL)
-            strcpy(status, "Unknown");
-
-    fclose(f_cap);
-    fclose(f_stat);
+    fflush(ctx->bat_cap_fp);
+    rewind(ctx->bat_cap_fp);
+    fflush(ctx->bat_stat_fp);
+    rewind(ctx->bat_stat_fp);
+    if (fscanf(ctx->bat_cap_fp, "%d", &capacity) != 1) capacity = 0;
+    if (fgets(status, sizeof(status) - 1, ctx->bat_stat_fp) == NULL) {
+        strncpy(status, "Unknown", 32*sizeof(char));
+        status[32-1] = '\0';
+    }
 
     char *icon = "d";
     if (strstr(status, "Charging")) {
@@ -36,25 +36,20 @@ void get_battery_info(char *dest, size_t max_len) {
 
 
 
-void get_ram_usage(char *dest, size_t max_len) {
-    FILE *fp = fopen("/proc/meminfo", "r");
-    if (!fp) {
-        snprintf(dest, max_len, "RAM N/A");
-        return;
-    }
-
+void get_ram_usage(sys_vitals *ctx, char *dest, size_t max_len) {
     long total = 0, available = 0;
     char label[64];
     long value;
 
-    while (fscanf(fp, "%63s %ld kB", label, &value) == 2) {
+    fflush(ctx->mem_fp);
+    rewind(ctx->mem_fp);
+    while (fscanf(ctx->mem_fp, "%63s %ld kB", label, &value) == 2) {
         if (strcmp(label, "MemTotal:") == 0) total = value;
         if (strcmp(label, "MemAvailable:") == 0) {
             available = value;
             break;
         }
     }
-    fclose(fp);
 
     if (total > 0) {
         long used = total - available;
@@ -72,18 +67,15 @@ unsigned long long prev_user, prev_nice, prev_system, prev_idle;
 
 
 
-int get_cpu_load() {
-    FILE *fp = fopen("/proc/stat", "r");
-    if (!fp) return 0;
-
+int get_cpu_load(sys_vitals *ctx) {
     unsigned long long user, nice, system, idle;
 
-    if (fscanf(fp, "cpu %llu %llu %llu %llu", &user, &nice, &system, &idle)
+    fflush(ctx->cpu_fp);
+    rewind(ctx->cpu_fp);
+    if (fscanf(ctx->cpu_fp, "cpu %llu %llu %llu %llu", &user, &nice, &system, &idle)
             != 4) {
-        fclose(fp);
         return 0;
     }
-    fclose(fp);
 
     unsigned long long prev_total = prev_user + prev_nice + prev_system +
             prev_idle;
@@ -109,4 +101,38 @@ void get_iso_time(char *dest, size_t max_len) {
     struct tm *tm_info = localtime(&t);
 
     strftime(dest, max_len, "%Y-%m-%d - %H:%M", tm_info);
+}
+
+
+
+int create_sysvitals_fd(sys_vitals *ctx) {
+    ctx->cpu_fp = NULL;
+    ctx->bat_cap_fp = NULL;
+    ctx->bat_stat_fp = NULL;
+    ctx->bat_available = 0;
+    ctx->mem_fp = NULL;
+
+    ctx->cpu_fp = fopen("/proc/stat", "r");
+    if (!ctx->cpu_fp) return -1;
+
+    ctx->bat_cap_fp = fopen("/sys/class/power_supply/BAT0/capacity", "r");
+    ctx->bat_stat_fp = fopen("/sys/class/power_supply/BAT0/status", "r");
+    if (ctx->bat_stat_fp != NULL && ctx->bat_cap_fp != NULL)
+        ctx->bat_available = 1;
+
+    ctx->mem_fp = fopen("/proc/meminfo", "r");
+    if (!ctx->mem_fp) return -1;
+
+    return 0;
+}
+
+
+
+int cleanup_sysvitals(sys_vitals *ctx) {
+    if (ctx->cpu_fp) fclose(ctx->cpu_fp);
+    if (ctx->bat_cap_fp) fclose(ctx->bat_cap_fp);
+    if (ctx->bat_stat_fp) fclose(ctx->bat_stat_fp);
+    if (ctx->mem_fp) fclose(ctx->mem_fp);
+
+    return 0;
 }
