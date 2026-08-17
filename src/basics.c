@@ -95,6 +95,10 @@ int configParse(config_file *cfg, FILE **file) {
         char *value = trim_spaces(delimiter + 1);
 
         conf_tup *tup = malloc(sizeof(conf_tup));
+        if (!tup || !(tup->name = strdup(name)) || !(tup->value = strdup(value))) {
+            if (tup) free(tup);
+            return -1;  // oder error handling
+        }
         tup->name = strdup(name);
         tup->value = strdup(value);
 
@@ -131,10 +135,12 @@ int configLoad(config_file *cf) {
         return -1;
     }
 
-    configParse(cf, &file);
+    if(configParse(cf, &file) != 0) {
+        fclose(file);
+        return -1;
+    }
 
     fclose(file);
-
     return 0;
 }
 
