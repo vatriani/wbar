@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include "vector.h"
 
 #include <stdio.h>
@@ -87,7 +85,7 @@ int vectorDelete(vector *v, int index){
             v->vectorList.items[i] = v->vectorList.items[i + 1];
             v->vectorList.items[i + 1] = NULL;
         }
-        v->vectorList.total--;
+        --v->vectorList.total;
         if ((v->vectorList.total > 0) && ((v->vectorList.total) == (v->vectorList.capacity / 4)))
             vectorResize(v, v->vectorList.capacity / 2);
         status = SUCCESS;
