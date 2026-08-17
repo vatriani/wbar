@@ -1,12 +1,10 @@
-#define _GNU_SOURCE
-
 #include "basics.h"
 #include "types.h"
 #include "wayland-core.h"
 #include "hyprland.h"
 #include "window.h"
 #include "buffer.h"
-#include "sys-vitals.h"
+//#include "sys-vitals.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -33,8 +31,8 @@ static void process_hyprland_event(struct app_context *ctx, const char *line);
 static void setConfigValues(struct app_context *ctx);
 
 
+
 int main(int argc, char **argv) {
-    int hyprland_sock = 0;
     struct app_context stack_ctx;
     struct pollfd fds[2];
     struct app_context *ctx = &stack_ctx;
@@ -43,8 +41,8 @@ int main(int argc, char **argv) {
     if (checkIfRunning()) return 0;
 #endif
     zombieProtect();
-    config_fill_defaults(ctx);
 
+    config_fill_defaults(ctx);
     if (configLoad(&ctx->config) == 0) {
         setConfigValues(ctx);
         configFree(&ctx->config);
@@ -52,13 +50,15 @@ int main(int argc, char **argv) {
     if (setup_ctx(ctx)) return 0;
     if (optHandling(argc, argv, ctx)) return 0;
 
-    create_hyprland_socket(&hyprland_sock);
-    initial_hyprland_query(ctx);
+
+    create_sysvitals_fd(&ctx->vitals);
+    create_hyprland_socket(&ctx->hypr);
+    initial_hyprland_query(&ctx->hypr);
     init_rendering(ctx);
 
     fds[0].fd = wl_display_get_fd(ctx->wl.display);
     fds[0].events = POLLIN;
-    fds[1].fd = hyprland_sock;
+    fds[1].fd = ctx->hypr.socket2_fd;
     fds[1].events = POLLIN;
 #ifdef DEBUG
     printf("init done. starting main-loop\n");
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
             ctx->initial_draw_done = 1;
         }
 
-        // 2: Poll for events
+        // setting system vitals are read only every secound
         int ret = poll(fds, 2, DEF_SYS_VITAL_POLL_MS);
         if (ret < 0) {
             perror("poll error");
@@ -98,8 +98,10 @@ int main(int argc, char **argv) {
         // 3: Handle results
         if (ret == 0) {
             wl_display_cancel_read(ctx->wl.display);
+            // vitals are read only every secound
             handle_timeout(ctx);
         } else {
+            // any other time wayland or hyprland is handled
             handle_wayland_events(ctx, fds);
             handle_hyprland_events(ctx, &fds[1]);
         }
@@ -111,7 +113,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    close(hyprland_sock);
+    close(ctx->hypr.socket2_fd);
     cleanup(ctx);
     return 0;
 }
@@ -120,9 +122,9 @@ int main(int argc, char **argv) {
 
 static void handle_timeout(struct app_context *ctx) {
     get_iso_time(ctx->vitals.sys_time, sizeof(ctx->vitals.sys_time));
-    get_ram_usage(ctx->vitals.sys_ram, sizeof(ctx->vitals.sys_ram));
-    get_battery_info(ctx->vitals.sys_bat, sizeof(ctx->vitals.sys_bat));
-    ctx->vitals.sys_cpu = get_cpu_load();
+    get_ram_usage(&ctx->vitals, ctx->vitals.sys_ram, sizeof(ctx->vitals.sys_ram));
+    get_battery_info(&ctx->vitals, ctx->vitals.sys_bat, sizeof(ctx->vitals.sys_bat));
+    ctx->vitals.sys_cpu = get_cpu_load(&ctx->vitals);
 
     if (ctx->initial_draw_done) {
         ctx->changed_segments |= RENDER_RIGHT;
@@ -178,8 +180,9 @@ static void handle_hyprland_events(struct app_context *ctx,
 #ifdef DEBUG
         printf("actual frame Workspace=%s, App=%s\n",
                ctx->hypr.active_workspace, ctx->hypr.active_app);
-#endif
         fflush(stdout);
+#endif
+
         draw_frame(ctx);
         wl_display_flush(ctx->wl.display);
     }
@@ -363,5 +366,6 @@ static void cleanup(struct app_context *ctx) {
     free(ctx->hypr.active_app);
     if (ctx->render.font) free(ctx->render.font);
 
+    cleanup_sysvitals(&ctx->vitals);
     cleanup_rendering(ctx);
 }

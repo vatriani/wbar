@@ -10,6 +10,8 @@
 #ifndef WINDOW_H
 #define WINDOW_H
 
+#define _GNU_SOURCE
+
 #include "types.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 

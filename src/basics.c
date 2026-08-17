@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include "basics.h"
 
 #include <stdio.h>
@@ -244,7 +242,8 @@ unsigned int optHandling(int argc, char **argv, struct app_context *ctx) {
                 showVersion(argv[0], "b0.1");
                 return 1;
             case 'f':
-                strcpy(ctx->render.font, optarg);
+                strncpy(ctx->render.font, optarg, MAX_APP_NAME_LENGTH - 1);
+                ctx->render.font[strlen(optarg)+1] = '\0';
                 break;
         }
     }

@@ -9,6 +9,8 @@
 #ifndef WAYLAND_CORE_H
 #define WAYLAND_CORE_H
 
+#define _GNU_SOURCE
+
 #include "types.h"
 #include <wayland-client.h>
 

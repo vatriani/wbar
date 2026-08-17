@@ -12,6 +12,8 @@
 #define _GNU_SOURCE
 
 #include "basics-t.h"
+#include "sys-vitals.h"
+#include "hyprland.h"
 
 #include <stdint.h>
 #include <cairo.h>
@@ -19,8 +21,6 @@
 
 
 
-#define MAX_WORKSPACES             32
-#define MAX_BUFF_SYS               32
 #define MAX_APP_NAME_LENGTH      1024
 #define APP_NAME               "wbar"
 #define CONFIG_FILE_NAME "config.cfg"
@@ -54,22 +54,6 @@ struct color {
     double r;
     double g;
     double b;
-};
-
-
-
-struct workspace {
-    int id;
-    int window_count;
-};
-
-
-
-struct sys_vitals {
-    char sys_time[MAX_BUFF_SYS];
-    char sys_ram[MAX_BUFF_SYS];
-    char sys_bat[MAX_BUFF_SYS];
-    int  sys_cpu;
 };
 
 
@@ -115,16 +99,6 @@ struct render_context {
 
 
 
-struct hyprland_context {
-    int               socket_fd;
-    char             *active_workspace;
-    char             *active_app;
-    struct workspace  workspaces[MAX_WORKSPACES];
-    int               workspaces_count;
-};
-
-
-
 struct app_context {
     volatile unsigned short int running;
     unsigned short int initial_draw_done;
@@ -132,8 +106,8 @@ struct app_context {
 
     struct wayland_context  wl;
     struct render_context   render;
-    struct hyprland_context hypr;
-    struct sys_vitals       vitals;
+    hyprland                hypr;
+    sys_vitals              vitals;
     config_file             config;
 };
 
