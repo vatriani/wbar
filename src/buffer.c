@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -96,26 +97,25 @@ void cleanup_rendering(struct app_context *ctx) {
 
 
 /**
+ * Vergleichsfunktion für qsort
+ */
+static int compare_workspaces(const void *a, const void *b) {
+    const workspace *ws_a = (const workspace *)a;
+    const workspace *ws_b = (const workspace *)b;
+
+    if (ws_a->id < ws_b->id) return -1;
+    if (ws_a->id > ws_b->id) return 1;
+    return 0;
+}
+
+
+/**
  * Sortiert das Workspace-Array aufsteigend nach der Workspace-ID.
- * Berücksichtigt nur die tatsächlich aktiven Workspaces.
+ * Nutzt qsort für optimale Performance.
  */
 void sort_workspaces(workspace workspaces[MAX_WORKSPACES], int count) {
     if (!workspaces || count <= 1) return;
-    // Flag zur vorzeitigen Terminierung (Optimierung: Falls bereits sortiert)
-    int swapped;
-    for (int i = 0; i < count - 1; ++i) {
-        swapped = 0;
-        for (int j = 0; j < count - i - 1; ++j) {
-            if (workspaces[j].id > workspaces[j + 1].id) {
-                workspace temp = workspaces[j];
-                workspaces[j] = workspaces[j + 1];
-                workspaces[j + 1] = temp;
-                swapped = 1;
-            }
-        }
-        // Wenn in einem Durchlauf nichts getauscht wurde, ist das Array fertig!
-        if (!swapped) break;
-    }
+    qsort(workspaces, count, sizeof(workspace), compare_workspaces);
 }
 
 
@@ -137,6 +137,7 @@ void draw_segment_left(struct app_context *ctx) {
     workspace sorted_ws[ctx->hypr.workspaces_count];
     memcpy(sorted_ws, ctx->hypr.workspaces, sizeof(workspace)*ctx->hypr.workspaces_count);
     sort_workspaces(sorted_ws, ctx->hypr.workspaces_count);
+
 
     // 3. DER EINZIGE ZEICHEN-DURCHLAUF (Direkt messen und malen)
     int current_x = ctx->render.padding;
