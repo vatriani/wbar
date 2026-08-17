@@ -102,7 +102,7 @@ int configParse(config_file *cfg, FILE **file) {
         tup->name = strdup(name);
         tup->value = strdup(value);
 
-        cfg->conf.pfVectorAdd(&cfg->conf, tup);
+        if (cfg->conf.pfVectorAdd(&cfg->conf, tup)) return -1;
     }
     free(line);
 
