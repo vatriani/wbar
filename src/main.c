@@ -62,10 +62,12 @@ int main(int argc, char **argv) {
 
     if (config_fill_defaults(ctx)) return -1;
 
-    if (configLoad(&ctx->config) == 0 ) setConfigValues(ctx);
-    else printf("[wbar] falling back to default values\n");
-    configFree(&ctx->config);
-    
+    if (configLoad(&ctx->config)) printf("[wbar] falling back to default values\n");
+    else {
+        setConfigValues(ctx);
+        configFree(&ctx->config);
+    }
+
     if (setup_ctx(ctx)) return -1;
     if (optHandling(argc, argv, ctx)) return -1;
 
