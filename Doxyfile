@@ -42,7 +42,7 @@ ALIASES                =
 ALIASES += "todo-high=\xrefitem todoh \"High Priority Todo\" \"Todo high priority list\""
 ALIASES += "todo-medium=\xrefitem todom \"Medium Priority Todo\" \"Todo medium priority list\""
 ALIASES += "todo-low=\xrefitem todol \"Low Priority Todo\" \"Todo low priority list\""
-OPTIMIZE_OUTPUT_FOR_C  = NO
+OPTIMIZE_OUTPUT_FOR_C  = YES
 OPTIMIZE_OUTPUT_JAVA   = NO
 OPTIMIZE_FOR_FORTRAN   = NO
 OPTIMIZE_OUTPUT_VHDL   = NO
@@ -369,6 +369,7 @@ INLINE_INFO            = YES
 # name. If set to NO, the members will appear in declaration order.
 # The default value is: YES.
 
+MEMBER_DOCS            = YES
 SORT_MEMBER_DOCS       = YES
 
 # If the SORT_BRIEF_DOCS tag is set to YES then Doxygen will sort the brief
@@ -815,7 +816,7 @@ FILTER_SOURCE_PATTERNS =
 # (index.html). This can be useful if you have a project on for instance GitHub
 # and want to reuse the introduction page also for the Doxygen output.
 
-USE_MDFILE_AS_MAINPAGE =
+USE_MDFILE_AS_MAINPAGE = README.md
 
 # The Fortran standard specifies that for fixed formatted Fortran code all
 # characters from position 72 are to be considered as comment. A common
@@ -863,7 +864,7 @@ REFERENCED_BY_RELATION = NO
 # all documented entities called/used by that function will be listed.
 # The default value is: NO.
 
-REFERENCES_RELATION    = NO
+REFERENCES_RELATION    = YES
 
 # If the REFERENCES_LINK_SOURCE tag is set to YES and SOURCE_BROWSER tag is set
 # to YES then the hyperlinks from functions in REFERENCES_RELATION and
