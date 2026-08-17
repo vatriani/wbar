@@ -16,7 +16,7 @@ XDG_SHELL_XML = $(WAYLAND_PROTOCOLS_DIR)/stable/xdg-shell/xdg-shell.xml
 
 TARGET = wbar
 
-SRC = src/basics.c src/sys-vitals.c src/buffer.c src/hyprland.c src/wayland-core.c src/window.c src/main.c src/wlr-layer-shell-unstable-v1.c src/xdg-shell.c
+SRC = src/basics.c src/vector.c src/sys-vitals.c src/buffer.c src/hyprland.c src/wayland-core.c src/window.c src/main.c src/wlr-layer-shell-unstable-v1.c src/xdg-shell.c
 GEN_FILES = src/wlr-layer-shell-unstable-v1-client-protocol.h src/wlr-layer-shell-unstable-v1.c src/xdg-shell-client-protocol.h src/xdg-shell.c
 OBJS = $(SRC:.c=.o)
 
