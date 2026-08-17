@@ -113,7 +113,11 @@ int create_sysvitals_fd(sys_vitals *ctx) {
     ctx->mem_fp = NULL;
 
     ctx->cpu_fp = fopen("/proc/stat", "r");
-    if (!ctx->cpu_fp) return -1;
+    if (!ctx->cpu_fp) {
+        printf("[wbar] an error with /proc/stat.\n");
+        cleanup_sysvitals(ctx);
+        return -1;
+    }
 
     ctx->bat_cap_fp = fopen("/sys/class/power_supply/BAT0/capacity", "r");
     ctx->bat_stat_fp = fopen("/sys/class/power_supply/BAT0/status", "r");
@@ -121,7 +125,11 @@ int create_sysvitals_fd(sys_vitals *ctx) {
         ctx->bat_available = 1;
 
     ctx->mem_fp = fopen("/proc/meminfo", "r");
-    if (!ctx->mem_fp) return -1;
+    if (!ctx->mem_fp) {
+        printf("[wbar] an error with /proc/meminfo.\n");
+        cleanup_sysvitals(ctx);
+        return -1;
+    }
 
     return 0;
 }
@@ -129,10 +137,21 @@ int create_sysvitals_fd(sys_vitals *ctx) {
 
 
 int cleanup_sysvitals(sys_vitals *ctx) {
-    if (ctx->cpu_fp) fclose(ctx->cpu_fp);
-    if (ctx->bat_cap_fp) fclose(ctx->bat_cap_fp);
-    if (ctx->bat_stat_fp) fclose(ctx->bat_stat_fp);
-    if (ctx->mem_fp) fclose(ctx->mem_fp);
-
+    if (ctx->cpu_fp) {
+        fclose(ctx->cpu_fp);
+        ctx->cpu_fp = NULL;
+    }
+    if (ctx->bat_cap_fp) {
+        fclose(ctx->bat_cap_fp);
+        ctx->bat_cap_fp = NULL;
+    }
+    if (ctx->bat_stat_fp) {
+        fclose(ctx->bat_stat_fp);
+        ctx->bat_stat_fp = NULL;
+    }
+    if (ctx->mem_fp) {
+        fclose(ctx->mem_fp);
+        ctx->mem_fp = NULL;
+    }
     return 0;
 }
