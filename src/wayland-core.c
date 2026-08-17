@@ -47,6 +47,11 @@ static void output_handle_geometry(void *data, struct wl_output *wl_output,
     (void)data; (void)wl_output; (void)x; (void)y; (void)physical_width;
     (void)physical_height; (void)subpixel; (void)make; (void)model;
     (void)transform;
+
+    struct app_context *ctx = (struct app_context *)data;
+    if (!ctx) return;
+
+    if (ctx->wl.configured) ctx->changed_segments = RENDER_ALL;
 }
 
 
@@ -134,6 +139,24 @@ const struct wl_registry_listener registry_listener = {
 };
 
 
+
+/**
+ * @brief Handle layer surface configuration changes.
+ *
+ * Called when the wayland compositor sends a configure event (e.g., on screen
+ * rotation). Detects width/height changes and reinitializes rendering
+ * buffer if needed.
+ *
+ * @param data Pointer to app_context struct.
+ * @param layer_surface The layer surface interface.
+ * @param serial Configuration serial number.
+ * @param width New width (0 if not set by compositor).
+ * @param height New height (0 if not set by compositor).
+ *
+ * @note On size changes, this function rebuilds Cairo surfaces to match new
+ *       dimensions.
+ * @see init_rendering() cleanup_rendering()
+ */
 static void layer_surface_configure(void *data,
         struct zwlr_layer_surface_v1 *layer_surface, uint32_t serial,
         uint32_t width, uint32_t height) {
@@ -141,15 +164,30 @@ static void layer_surface_configure(void *data,
 
     zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
 
-    if (width > 0) ctx->wl.width = width;
+    int width_changed = 0;
+    int height_changed = 0;
+
+    if (width > 0 && width != ctx->wl.width) {
+        ctx->wl.width = width;
+        width_changed = 1;
+    }
     else if (ctx->wl.width <= 0)  ctx->wl.width = 1920;
 
-    if (height > 0) ctx->wl.height = height;
+    if (height > 0 && height != ctx->wl.height) {
+        ctx->wl.height = height;
+        height_changed = 1;
+    }
 
     int is_first_time = (ctx->wl.configured == 0);
     ctx->wl.configured = 1;
 
     if (is_first_time && ctx->wl.width > 0 && ctx->wl.height > 0) draw_frame(ctx);
+    else if ((width_changed || height_changed) && !is_first_time) {
+        cleanup_rendering(ctx);
+        init_rendering(ctx);
+        ctx->changed_segments = RENDER_ALL;
+        draw_frame(ctx);
+    }
 }
 
 
