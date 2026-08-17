@@ -9,11 +9,29 @@
 #ifndef HYPRLAND_H
 #define HYPRLAND_H
 
-#include "types.h"
+#define _GNU_SOURCE
 
-int create_hyprland_socket(int *sock);
-void initial_hyprland_query(struct app_context *ctx);
-void fetch_hyprland_colors(struct app_context *ctx);
+#include <stddef.h>
+
+#define MAX_WORKSPACES             32
+
+typedef struct workspace_t workspace;
+struct workspace_t {
+    int id;
+    int window_count;
+};
+
+typedef struct hyprland_context hyprland;
+struct hyprland_context {
+    int        socket2_fd;
+    char      *active_workspace;
+    char      *active_app;
+    workspace  workspaces[MAX_WORKSPACES];
+    int        workspaces_count;
+};
+
+int create_hyprland_socket(hyprland *ctx);
+void initial_hyprland_query(hyprland *ctx);
 
 int get_json_value(const char *json, const char *key, char *dest, size_t dest_size);
 char *query_hyprland_ipc(const char *command);

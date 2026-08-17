@@ -48,7 +48,7 @@ int get_socket_path(char *path, size_t max_len) {
 
 
 int get_json_value(const char *json, const char *key, char *dest,
-        size_t dest_size) {
+            size_t dest_size) {
     if (!json || !key || !dest || dest_size == 0) return 0;
     dest[0] = '\0';
 
@@ -80,19 +80,35 @@ int get_json_value(const char *json, const char *key, char *dest,
 
 
 
-void initial_hyprland_query(struct app_context *ctx) {
-    ctx->hypr.workspaces_count = 0;
+void initial_hyprland_query(hyprland *ctx) {
+    ctx->workspaces_count = 0;
 
     for (int i = 0; i < MAX_WORKSPACES; ++i) {
-        ctx->hypr.workspaces[i].id = 0;
-        ctx->hypr.workspaces[i].window_count = 0;
+        ctx->workspaces[i].id = 0;
+        ctx->workspaces[i].window_count = 0;
     }
 
-    // 1. WORKSPACES PARSEN
-    char *json_data = query_hyprland_ipc("workspaces");
+    char *json_data = query_hyprland_ipc("[[BATCH]]j/workspaces; j/activeworkspace; j/activewindow");
+// 0. splitting string
     if (json_data) {
-        char *ptr = json_data;
-        while ((ptr = strstr(ptr, "{")) != NULL && ctx->hypr.workspaces_count < MAX_WORKSPACES) {
+        char *workspaces_part = json_data;
+        char *active_ws_part = NULL;
+        char *active_win_part = NULL;
+
+        char *split1 = strstr(json_data, "\n{");
+        if (split1) {
+            *split1 = '\0';
+            active_ws_part = split1 + 1;
+
+            char *split2 = strstr(active_ws_part, "\n{");
+            if (split2) {
+                *split2 = '\0';
+                active_win_part = split2 + 1;
+            }
+        }
+// 1. WORKSPACES PARSING
+        char *ptr = workspaces_part;
+        while ((ptr = strstr(ptr, "{")) != NULL && ctx->workspaces_count < MAX_WORKSPACES) {
             char id_str[16] = {0};
             char win_str[16] = {0};
 
@@ -100,59 +116,59 @@ void initial_hyprland_query(struct app_context *ctx) {
             get_json_value(ptr, "windows", win_str, sizeof(win_str));
 
             if (id_str[0] != '\0') {
-                ctx->hypr.workspaces[ctx->hypr.workspaces_count].id = atoi(id_str);
-                ctx->hypr.workspaces[ctx->hypr.workspaces_count].window_count = atoi(win_str);
-                ctx->hypr.workspaces_count++;
+                ctx->workspaces[ctx->workspaces_count].id = atoi(id_str);
+                ctx->workspaces[ctx->workspaces_count].window_count = atoi(win_str);
+                ctx->workspaces_count++;
             }
             ++ptr;
         }
+// 2. ACTIVE WORKSPACE PARSING
+        if (active_ws_part) {
+            get_json_value(active_ws_part, "id", ctx->active_workspace, 10);
+
+            if (ctx->active_workspace[0] == '\0') {
+                strncpy(ctx->active_workspace, active_ws_part, 10);
+                ctx->active_workspace[strcspn(ctx->active_workspace, "\r\n")] = '\0';
+            }
+        }
+// 3. ACTIVE WINDOW PARSSING
+        if (active_win_part) {
+            char app_class[256] = {0};
+            char app_title[256] = {0};
+
+            get_json_value(active_win_part, "class", app_class, sizeof(app_class));
+            get_json_value(active_win_part, "title", app_title, sizeof(app_title));
+
+            if (app_class[0] != '\0') {
+                if (app_title[0] != '\0') {
+                    snprintf(ctx->active_app, MAX_APP_NAME_LENGTH - 1, "%s - %s", app_class, app_title);
+                } else {
+                    strncpy(ctx->active_app, app_class, MAX_APP_NAME_LENGTH - 1);
+                }
+            } else {
+                if (app_title[0] != '\0') {
+                    strncpy(ctx->active_app, app_title, MAX_APP_NAME_LENGTH - 1);
+                } else {
+                    ctx->active_app[0] = '\0';
+                }
+            }
+        } else {
+            ctx->active_app[0] = '\0';
+        }
+
         free(json_data);
         json_data = NULL;
+    } else {
+        ctx->active_app[0] = '\0';
     }
 
-    // 2. ACTIVE WORKSPACE PARSEN
-    json_data = query_hyprland_ipc("activeworkspace");
-    if (json_data) {
-        get_json_value(json_data, "id", ctx->hypr.active_workspace, 10);
-
-        if (ctx->hypr.active_workspace[0] == '\0') {
-            strncpy(ctx->hypr.active_workspace, json_data, 10);
-            ctx->hypr.active_workspace[strcspn(ctx->hypr.active_workspace,
-                    "\r\n")] = '\0';
-        }
-        free(json_data);
-        json_data = NULL;
-    }
-
-    // 3. ACTIVE WINDOW PARSEN
-    json_data = query_hyprland_ipc("activewindow");
-    if (json_data) {
-        char app_class[256] = {0};
-        char app_title[256] = {0};
-
-        get_json_value(json_data, "class", app_class, sizeof(app_class));
-        get_json_value(json_data, "title", app_title, sizeof(app_title));
-
-        if (app_class[0] != '\0') {
-            if (app_title[0] != '\0') snprintf(ctx->hypr.active_app, MAX_APP_NAME_LENGTH -1,
-                    "%s - %s", app_class, app_title);
-            else strncpy(ctx->hypr.active_app, app_class, MAX_APP_NAME_LENGTH - 1);
-        }
-        else {
-            if (app_title[0] != '\0') strncpy(ctx->hypr.active_app, app_title, MAX_APP_NAME_LENGTH - 1);
-            else ctx->hypr.active_app[0] = '\0';
-        }
-        free(json_data);
-        json_data = NULL;
-    }
-    else ctx->hypr.active_app[0] = '\0';
 }
 
 
 
-int create_hyprland_socket(int *sock) {
+int create_hyprland_socket(hyprland *ctx) {
     char socket_path[512] = {0};
-    int tmp_sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    ctx->socket2_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -164,95 +180,19 @@ int create_hyprland_socket(int *sock) {
         sleep(1);
         ++count;
     }
-    if (tmp_sock < 0 || count == max_retries) return 1;
+    if (ctx->socket2_fd < 0 || count == max_retries) return 1;
 
     count = 0;
-    strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char));
-    while (connect(tmp_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1 &&
+    strncpy(addr.sun_path, socket_path, strlen(socket_path)*sizeof(char) + 1);
+    addr.sun_path[strlen(socket_path) + 1] = '\0';
+    while (connect(ctx->socket2_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1 &&
             count <= max_retries) {
         sleep(1);
         ++count;
     }
     if (count == max_retries) return 1;
 
-    *sock = tmp_sock;
     return 0;
-}
-
-
-
-void fetch_hyprland_colors(struct app_context *ctx) {
-    const char *conf_path = "~/.config/hypr/scheme/current.conf";
-    wordexp_t exp_result;
-    if (wordexp(conf_path, &exp_result, 0) != 0) return;
-    if (exp_result.we_wordc == 0) {
-        wordfree(&exp_result);
-        return;
-    }
-
-    FILE *file = fopen(exp_result.we_wordv[0], "r");
-    wordfree(&exp_result);
-
-    if (!file) {
-        fprintf(stderr, "[wbar] Warn: cannot read scheme/current.conf. using fallbacks.\n");
-        return;
-    }
-
-    char line[512];
-
-    while (fgets(line, sizeof(line), file)) {
-        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-
-        int is_bg = (strstr(line, "$background ") == line
-                || strstr(line, "$base ") == line);
-        int is_accent = (strstr(line, "$primary ") == line
-                || strstr(line, "$accent ") == line);
-        int is_fg = (strstr(line, "$text ") == line
-                || strstr(line, "$foreground ") == line);
-
-        if (!is_bg && !is_accent && !is_fg) continue;
-
-        char *eq = strchr(line, '=');
-        if (!eq) continue;
-
-        char *hex_start = eq + 1;
-
-        while (*hex_start == ' ' || *hex_start == '\t') ++hex_start;
-
-        unsigned int hex_val = 0;
-        char hex_tmp[7] = {0};
-        strncpy(hex_tmp, hex_start, 6);
-
-        if (sscanf(hex_tmp, "%x", &hex_val) == 1) {
-            double r = ((hex_val >> 16) & 0xFF) / 255.0;
-            double g = ((hex_val >> 8) & 0xFF) / 255.0;
-            double b = (hex_val & 0xFF) / 255.0;
-
-            if (is_bg) {
-                ctx->render.bg_color.r = r;
-                ctx->render.bg_color.g = g;
-                ctx->render.bg_color.b = b;
-            } else if (is_accent) {
-                ctx->render.accent_color.r = r;
-                ctx->render.accent_color.g = g;
-                ctx->render.accent_color.b = b;
-            } else if (is_fg) {
-                ctx->render.fg_color.r = r;
-                ctx->render.fg_color.g = g;
-                ctx->render.fg_color.b = b;
-            }
-        }
-    }
-
-    fclose(file);
-#ifdef DEBUG
-    printf("[wbar] colors extracted from current.conf\n");
-    printf("[wbar] -> BG:(%.2f, %.2f, %.2f) Accent:(%.2f, %.2f, %.2f) FG:(%.2f, %.2f, %.2f)\n",
-           ctx->render.bg_color.r, ctx->render.bg_color.g, ctx->render.bg_color.b,
-           ctx->render.accent_color.r, ctx->render.accent_color.g, ctx->render.accent_color.b,
-           ctx->render.fg_color.r, ctx->render.fg_color.g, ctx->render.fg_color.b);
-    fflush(stdout);
-#endif
 }
 
 
@@ -275,8 +215,15 @@ char *query_hyprland_ipc(const char *command) {
         return NULL;
     }
 
-    char cmd_formatted[256];
-    snprintf(cmd_formatted, sizeof(cmd_formatted), "[[j]]/%s", command);
+    char dump[128];
+    while (recv(sock, dump, sizeof(dump), MSG_DONTWAIT) > 0);
+
+    char cmd_formatted[512];
+    if (strncmp(command, "[[BATCH]]", 9) == 0) {
+        snprintf(cmd_formatted, sizeof(cmd_formatted), "%s", command);
+    } else {
+        snprintf(cmd_formatted, sizeof(cmd_formatted), "[[j]]/%s", command);
+    }
 
     if (write(sock, cmd_formatted, strlen(cmd_formatted)) < 0) {
         close(sock);
@@ -285,7 +232,10 @@ char *query_hyprland_ipc(const char *command) {
 
     size_t buf_size = 4096;
     char *res_buf = malloc(buf_size);
-    if (!res_buf) { close(sock); return NULL; }
+    if (!res_buf) {
+        close(sock);
+        return NULL;
+    }
 
     size_t total_read = 0;
     char chunk[MAX_APP_NAME_LENGTH];
@@ -295,12 +245,17 @@ char *query_hyprland_ipc(const char *command) {
         if (total_read + bytes_read >= buf_size) {
             buf_size *= 2;
             char *new_buf = realloc(res_buf, buf_size);
-            if (!new_buf) { free(res_buf); close(sock); return NULL; }
+            if (!new_buf) {
+                free(res_buf);
+                close(sock);
+                return NULL;
+            }
             res_buf = new_buf;
         }
         memcpy(res_buf + total_read, chunk, bytes_read);
         total_read += bytes_read;
     }
+
     res_buf[total_read] = '\0';
     close(sock);
 
