@@ -10,6 +10,8 @@
 #ifndef BUFFER_H
 #define BUFFER_H
 
+#define _GNU_SOURCE
+
 #include "types.h"
 
 int init_rendering(struct app_context *ctx);

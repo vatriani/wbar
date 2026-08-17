@@ -1,5 +1,4 @@
-#define _GNU_SOURCE
-
+#include "hyprland.h"
 #include "buffer.h"
 #include "types.h"
 #include "sys-vitals.h"
@@ -17,7 +16,7 @@
 
 
 static int allocate_shm_file(size_t size) {
-    int fd = memfd_create("wlauncher-shared-buffer", MFD_CLOEXEC);
+    int fd = memfd_create("wbar-shared-buffer", MFD_CLOEXEC);
     if (fd < 0) return -1;
     if (ftruncate(fd, size) < 0) {
         close(fd);
@@ -88,7 +87,7 @@ void cleanup_rendering(struct app_context *ctx) {
     if (ctx->render.pango_font_desc) pango_font_description_free(ctx->render.pango_font_desc);
     if (ctx->render.pango_layout) g_object_unref(ctx->render.pango_layout);
     if (ctx->wl.buffer) wl_buffer_destroy(ctx->wl.buffer);
-    if (ctx->render.shm_data) munmap(ctx->render.shm_data, ctx->wl.width * 4 * ctx->wl.height);
+    if (ctx->render.shm_data) munmap(ctx->render.shm_data, ctx->render.shm_size);
     if (ctx->render.shm_fd >= 0) close(ctx->render.shm_fd);
     cairo_destroy(ctx->render.cairo_t_shm);
     cairo_surface_destroy(ctx->render.cairo_surface_shm);
@@ -100,7 +99,7 @@ void cleanup_rendering(struct app_context *ctx) {
  * Sortiert das Workspace-Array aufsteigend nach der Workspace-ID.
  * Berücksichtigt nur die tatsächlich aktiven Workspaces.
  */
-void sort_workspaces(struct workspace workspaces[MAX_WORKSPACES], int count) {
+void sort_workspaces(workspace workspaces[MAX_WORKSPACES], int count) {
     if (!workspaces || count <= 1) return;
     // Flag zur vorzeitigen Terminierung (Optimierung: Falls bereits sortiert)
     int swapped;
@@ -108,7 +107,7 @@ void sort_workspaces(struct workspace workspaces[MAX_WORKSPACES], int count) {
         swapped = 0;
         for (int j = 0; j < count - i - 1; ++j) {
             if (workspaces[j].id > workspaces[j + 1].id) {
-                struct workspace temp = workspaces[j];
+                workspace temp = workspaces[j];
                 workspaces[j] = workspaces[j + 1];
                 workspaces[j + 1] = temp;
                 swapped = 1;
@@ -135,13 +134,14 @@ void draw_segment_left(struct app_context *ctx) {
     if (ctx->render.left_width)
         segment_eraser(ctx, 0, 0, ctx->render.left_width, ctx->wl.height);
 
-    struct workspace sorted_ws[ctx->hypr.workspaces_count];
-    memcpy(sorted_ws, ctx->hypr.workspaces, sizeof(struct workspace)*ctx->hypr.workspaces_count);
+    workspace sorted_ws[ctx->hypr.workspaces_count];
+    memcpy(sorted_ws, ctx->hypr.workspaces, sizeof(workspace)*ctx->hypr.workspaces_count);
     sort_workspaces(sorted_ws, ctx->hypr.workspaces_count);
 
     // 3. DER EINZIGE ZEICHEN-DURCHLAUF (Direkt messen und malen)
     int current_x = ctx->render.padding;
     int text_width = 0, text_height = 0;
+    int divider_width = 0, divider_height = 0;
 
     for (int i = 0; i < ctx->hypr.workspaces_count; ++i) {
         char item[128];
@@ -177,15 +177,17 @@ void draw_segment_left(struct app_context *ctx) {
 
         if (i < ctx->hypr.workspaces_count - 1) {
             pango_layout_set_text(ctx->render.pango_layout, " | ", -1);
-            pango_layout_get_pixel_size(ctx->render.pango_layout, &text_width,
-                    &text_height);
+            if (divider_width == 0)
+                pango_layout_get_pixel_size(ctx->render.pango_layout,
+                        &divider_width,
+                        &divider_height);
 
             cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.fg_color.r * 0.6,
                     ctx->render.fg_color.g * 0.6, ctx->render.fg_color.b * 0.6);
             cairo_move_to(ctx->render.cairo_t_shm, current_x,
                     (ctx->wl.height - text_height) / 2);
             pango_cairo_show_layout(ctx->render.cairo_t_shm, ctx->render.pango_layout);
-            current_x += text_width;
+            current_x += divider_width;
         }
     }
 
@@ -243,15 +245,17 @@ void draw_segment_right(struct app_context *ctx) {
                 ctx->render.right_width, ctx->wl.height);
     }
 
+    char right_bar_string[256];
+
     if (ctx->vitals.sys_time[0] == '\0') {
         get_iso_time(ctx->vitals.sys_time, sizeof(ctx->vitals.sys_time));
-        get_ram_usage(ctx->vitals.sys_ram, sizeof(ctx->vitals.sys_ram));
-        get_battery_info(ctx->vitals.sys_bat, sizeof(ctx->vitals.sys_bat));
-        ctx->vitals.sys_cpu = get_cpu_load();
+        get_ram_usage(&ctx->vitals, ctx->vitals.sys_ram, sizeof(ctx->vitals.sys_ram));
+        ctx->vitals.sys_cpu = get_cpu_load(&ctx->vitals);
     }
 
-    char right_bar_string[256];
-    if (strstr(ctx->vitals.sys_bat, "BAT N/A") != NULL) {
+    if (ctx->vitals.bat_available == 0) {
+        get_battery_info(&ctx->vitals, ctx->vitals.sys_bat, sizeof(ctx->vitals.sys_bat));
+
         snprintf(right_bar_string, sizeof(right_bar_string),
                 "CPU: %d%% | %s | %s ",
                  ctx->vitals.sys_cpu, ctx->vitals.sys_ram, ctx->vitals.sys_time);
