@@ -32,26 +32,45 @@ static void setConfigValues(struct app_context *ctx);
 
 
 
+// static pointer, only visible for aexit
+static struct app_context *atexit_ctx_ptr = NULL;
+// wrapper-function without param for atexit
+void atexit_wrapper(void) {
+    if (atexit_ctx_ptr) {
+        cleanup(atexit_ctx_ptr);
+    }
+}
+
+
+
 int main(int argc, char **argv) {
     struct app_context stack_ctx;
     struct pollfd fds[2];
     struct app_context *ctx = &stack_ctx;
     memset(ctx, 0, sizeof(struct app_context));
+
+    atexit_ctx_ptr = ctx;
+    if (atexit(atexit_wrapper) != 0) {
+        fprintf(stderr, "Fehler: atexit konnte nicht registriert werden.\n");
+        return 1;
+    }
+
 #ifndef DEBUG
     if (checkIfRunning()) return 0;
 #endif
     zombieProtect();
 
     config_fill_defaults(ctx);
-    if (configLoad(&ctx->config) == 0) {
+    if (configLoad(&ctx->config)) {
         setConfigValues(ctx);
         configFree(&ctx->config);
+        printf("[wbar] falling back to default values\n");
     }
-    if (setup_ctx(ctx)) return 0;
-    if (optHandling(argc, argv, ctx)) return 0;
+    if (setup_ctx(ctx)) return -1;
+    if (optHandling(argc, argv, ctx)) return -1;
 
 
-    create_sysvitals_fd(&ctx->vitals);
+    if (create_sysvitals_fd(&ctx->vitals)) return -1;
     create_hyprland_socket(&ctx->hypr);
     initial_hyprland_query(&ctx->hypr);
     init_rendering(ctx);
@@ -113,8 +132,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    close(ctx->hypr.socket2_fd);
-    cleanup(ctx);
     return 0;
 }
 
@@ -365,7 +382,7 @@ static void cleanup(struct app_context *ctx) {
     if (ctx->hypr.active_workspace) free(ctx->hypr.active_workspace);
     free(ctx->hypr.active_app);
     if (ctx->render.font) free(ctx->render.font);
-
+    close(ctx->hypr.socket2_fd);
     cleanup_sysvitals(&ctx->vitals);
     cleanup_rendering(ctx);
 }
