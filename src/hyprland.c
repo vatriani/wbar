@@ -1,20 +1,13 @@
 #include "hyprland.h"
 #include "types.h"
-#include "wlr-layer-shell-unstable-v1-client-protocol.h"
-#include "xdg-shell-client-protocol.h"
 
 #include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <sys/un.h>
 #include <wordexp.h>
 #include <ctype.h>
-#include <linux/input-event-codes.h>
-#include <wayland-client.h>
 
 
 
@@ -283,7 +276,7 @@ void send_hyprland_cmd(const char *command) {
     }
 
     if (write(sock, command, strlen(command)) < 0)
-        perror("[wbar] Fehler beim Schreiben in den Socket");
+        perror("[wbar] error at writing to hyprland socket.\n");
 
     close(sock);
 }

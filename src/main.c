@@ -2,9 +2,7 @@
 #include "types.h"
 #include "wayland-core.h"
 #include "hyprland.h"
-#include "window.h"
 #include "buffer.h"
-//#include "sys-vitals.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -51,7 +49,7 @@ int main(int argc, char **argv) {
 
     atexit_ctx_ptr = ctx;
     if (atexit(atexit_wrapper) != 0) {
-        fprintf(stderr, "Fehler: atexit konnte nicht registriert werden.\n");
+        fprintf(stderr, "[wbar]: atexit couldnt be registriered.\n");
         return 1;
     }
 
@@ -157,7 +155,7 @@ static void handle_timeout(struct app_context *ctx) {
 static void handle_wayland_events(struct app_context *ctx, struct pollfd *fds) {
     if (fds[0].revents & POLLIN) {
         if (wl_display_read_events(ctx->wl.display) < 0) {
-            fprintf(stderr, "error at reading wayland events.\n");
+            fprintf(stderr, "[wbar] error at reading wayland events.\n");
             ctx->running = 0;
             return;
         }
@@ -179,7 +177,7 @@ static void handle_hyprland_events(struct app_context *ctx,
 
     ssize_t len = recv(hyprland_fd->fd, ipc_buffer, sizeof(ipc_buffer) - 1, 0);
     if (len <= 0) {
-        if (len == 0) fprintf(stderr, "hyprland closed the connection.\n");
+        if (len == 0) fprintf(stderr, "[wbar] hyprland closed the connection.\n");
         else perror("recv(hyprland)");
         ctx->running = 0;
         return;
@@ -343,7 +341,7 @@ static int setup_ctx(struct app_context *ctx) {
     wl_display_roundtrip(ctx->wl.display);
 
     if (!ctx->wl.compositor || !ctx->wl.layer_shell || !ctx->wl.shm) {
-        fprintf(stderr, "Err: critical Wayland handler missing.\n");
+        fprintf(stderr, "[wbar] critical Wayland handler missing.\n");
         wl_display_disconnect(ctx->wl.display);
         return 1;
     }
