@@ -1,3 +1,11 @@
+/**
+ *  @file basics.c
+ *  @brief Implements all functions to encapsulate basic program behaviour.
+ *  @author N. Neumann
+ *  @version 0.1
+ *  @date 2026
+ *  @copyright GPLv3
+ */
 #include "basics.h"
 
 #include <stdio.h>
@@ -20,7 +28,7 @@
  * @param max_len Size of the output buffer.
  * @return 0 on success, -1 on failure (buffer overflow or missing $HOME).
  */
-int get_xdg_config_path(char *out_path, size_t max_len) {
+static int get_xdg_config_path(char *out_path, size_t max_len) {
     const char *xdg_config = getenv("XDG_CONFIG_HOME");
 
     if (xdg_config && xdg_config[0] != '\0') {
@@ -44,8 +52,15 @@ int get_xdg_config_path(char *out_path, size_t max_len) {
 
 
 
-// Hilfsfunktion für qsort: Vergleicht zwei void** Elemente, die conf_tup_t* enthalten
-int compare_config_tups(const void *a, const void *b) {
+/**
+ * Helper function for quicksort. Compares two void** elements that contain
+ * conf_tup_t*. Decission is made by the name atribute.
+ *
+ * @param a Element a as a conf_tup
+ * @param b Element a as a conf_tup
+ * @return @see strcmp documentation.
+ */
+static int compare_config_tups(const void *a, const void *b) {
     const conf_tup *tup_a = *(const conf_tup **)a;
     const conf_tup *tup_b = *(const conf_tup **)b;
     return strcmp(tup_a->name, tup_b->name);
@@ -53,8 +68,14 @@ int compare_config_tups(const void *a, const void *b) {
 
 
 
-// Hilfsfunktion für bsearch: Sucht nach dem String-Schlüssel
-int compare_search_key(const void *key, const void *element) {
+/**
+ * Helper function for bsearch: Searches for the string key.
+ *
+ * @param key Search string.
+ * @param element Reference to a comparing elemment.
+ * @return @see strcmp documentation.
+ */
+static int compare_search_key(const void *key, const void *element) {
     const char *search_name = (const char *)key;
     const conf_tup *tup = *(const conf_tup **)element;
     return strcmp(search_name, tup->name);
@@ -62,8 +83,13 @@ int compare_search_key(const void *key, const void *element) {
 
 
 
-// Hilfsfunktion zum Abschneiden von Whitespaces
-char *trim_spaces(char *str) {
+/**
+ * Helperfunction to cut heading and trailing whithespaces.
+ *
+ * @param str Contains the string to be cutted.
+ * @return The cutted string.
+ */
+static char *trim_spaces(char *str) {
     while (isspace((unsigned char)*str)) str++;
     if (*str == 0) return str;
     char *end = str + strlen(str) - 1;
@@ -74,7 +100,23 @@ char *trim_spaces(char *str) {
 
 
 
-int configParse(config_file *cfg, FILE **file) {
+/**
+ * @brief Helperfunction to parse the config file.
+ *
+ * - # and ; marking comments and every line starts with it gets ignored.
+ * - '\n' and '\r' empty lines are stripped.
+ * - an entry looks like this name=value
+ *
+ * Config file example:
+ * # some comment
+ * ; name=value - an uncommented tupple
+ * name=value - an
+ *
+ * @param cfg Contains a pointer at the config struct to work with.
+ * @param file Contains a pointer to the file handle.
+ * @return 0 on success. -1 on error.
+ */
+static int configParse(config_file *cfg, FILE **file) {
     char *line = NULL;
     size_t len = 0;
     ssize_t read;
@@ -82,11 +124,11 @@ int configParse(config_file *cfg, FILE **file) {
     while ((read = getline(&line, &len, *file)) != -1) {
         char *trimmed = trim_spaces(line);
 
-        // Kommentare (# oder ;) und Leerzeilen überspringen
+        // ignore (trailing # or ;) and empty lines.
         if (line[0] == '#' || line[0] == '\n' ||
                 line[0] == '\r' || line[0] == ';') continue;
 
-        // Trennung beim ersten Gleichheitszeichen
+        // cut at the first occurence of an equal sign.
         char *delimiter = strchr(trimmed, '=');
         if (!delimiter) continue;
 
@@ -97,14 +139,14 @@ int configParse(config_file *cfg, FILE **file) {
         conf_tup *tup = malloc(sizeof(conf_tup));
         if (!tup || !(tup->name = strdup(name)) || !(tup->value = strdup(value))) {
             if (tup) free(tup);
-            return -1;  // oder error handling
+            return -1;
         }
 
         if (cfg->conf.pfVectorAdd(&cfg->conf, tup)) return -1;
     }
     free(line);
 
-    // Einmaliges Sortieren für die O(log n) Binärsuche
+    // Oneshot sorting for binary search
     int total_elements = cfg->conf.pfVectorTotal(&cfg->conf);
     if (total_elements > 0)
         qsort(cfg->conf.vectorList.items, total_elements, sizeof(void *), compare_config_tups);
@@ -151,25 +193,22 @@ char* configGetValueFromName(config_file *cfg, const char *name) {
     int total_elements = cfg->conf.pfVectorTotal(&cfg->conf);
     if (total_elements == 0) return NULL;
 
-    // Binäre Suche direkt auf dem internen Array deines Vektors
-    conf_tup **found = bsearch(name,
-                                 cfg->conf.vectorList.items,
-                                 total_elements,
-                                 sizeof(void *),
-                                 compare_search_key);
+    // Binary search directly at the internal structure.
+    conf_tup **found = bsearch(name, cfg->conf.vectorList.items,
+            total_elements, sizeof(void *), compare_search_key);
 
     return found ? (*found)->value : NULL;
 }
 
 
 
-// cleanup
+
 void configFree(config_file *cfg) {
     if (!cfg) return;
 
     int total_elements = cfg->conf.pfVectorTotal(&cfg->conf);
 
-    for (int i = 0; i < total_elements; i++) {
+    for (int i = 0; i < total_elements; ++i) {
         conf_tup *tup = (conf_tup *)cfg->conf.pfVectorGet(&cfg->conf, i);
         if (tup) {
             free(tup->name);
@@ -177,7 +216,6 @@ void configFree(config_file *cfg) {
             free(tup);
         }
     }
-
     cfg->conf.pfVectorFree(&cfg->conf);
 }
 
