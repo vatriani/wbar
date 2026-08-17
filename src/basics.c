@@ -21,6 +21,8 @@
 
 
 /**
+ * @brief Path resolver for getting XDF_CONFIG_PATH.
+ *
  * Resolves the absolute path to the user's XDG configuration directory.
  * If XDG_CONFIG_HOME is empty/unset, it falls back to $HOME/.config.
  *
@@ -53,6 +55,8 @@ static int get_xdg_config_path(char *out_path, size_t max_len) {
 
 
 /**
+ * @brief Quicksort compare.
+ *
  * Helper function for quicksort. Compares two void** elements that contain
  * conf_tup_t*. Decission is made by the name atribute.
  *
@@ -69,7 +73,7 @@ static int compare_config_tups(const void *a, const void *b) {
 
 
 /**
- * Helper function for bsearch: Searches for the string key.
+ * @brief Helper function for bsearch: Searches for the string key.
  *
  * @param key Search string.
  * @param element Reference to a comparing elemment.
@@ -84,7 +88,7 @@ static int compare_search_key(const void *key, const void *element) {
 
 
 /**
- * Helperfunction to cut heading and trailing whithespaces.
+ * @brief Helperfunction to cut heading and trailing whithespaces.
  *
  * @param str Contains the string to be cutted.
  * @return The cutted string.

@@ -1,6 +1,14 @@
-#include "hyprland.h"
+/**
+ *  @file buffer.c
+ *  @brief Implements all functions to encapsulate drawing functionality.
+ *  @author N. Neumann
+ *  @version 0.5
+ *  @date 2026
+ *  @copyright GPLv3
+ */
 #include "buffer.h"
 #include "types.h"
+#include "hyprland.h"
 #include "sys-vitals.h"
 
 #include <stdint.h>
@@ -16,6 +24,12 @@
 
 
 
+/**
+ * @brief Helperfunction to allocate shm_file for wayland.
+ *
+ * @param ctx Pass the address of an app_context strucht.
+ * @return 0 on success. -1 need program quit.
+ */
 static int allocate_shm_file(size_t size) {
     int fd = memfd_create("wbar-shared-buffer", MFD_CLOEXEC);
     if (fd < 0) return -1;
@@ -28,12 +42,22 @@ static int allocate_shm_file(size_t size) {
 
 
 
+/**
+ * @brief Implements a buffer release event.
+ *
+ * Actually not needed by the programm but needed for wayland connections.
+ */
 static void buffer_release(void *data, struct wl_buffer *wl_buffer) {
     (void)data; (void)wl_buffer;
 }
 
 
 
+/**
+ * @brief Implements a buffer release listener.
+ *
+ * Actually not needed by the programm but needed for wayland connections.
+ */
 static const struct wl_buffer_listener buffer_listener = {
     .release = buffer_release,
 };
@@ -96,6 +120,16 @@ void cleanup_rendering(struct app_context *ctx) {
 
 
 
+/**
+ * @brief Comparing function for quicksort.
+ *
+ * Helper function for quicksort. Compares two void** elements that contain
+ * workspace*. Decission is made by the name atribute.
+ *
+ * @param a Element a as a workspace
+ * @param b Element a as a workspace
+ * @return @see strcmp documentation.
+ */
 static int compare_workspaces(const void *a, const void *b) {
     const workspace *ws_a = (const workspace *)a;
     const workspace *ws_b = (const workspace *)b;
@@ -107,6 +141,12 @@ static int compare_workspaces(const void *a, const void *b) {
 
 
 
+/**
+ * @brief Helper function for encapsulate quicksort.
+ *
+ * @param workspaces an array of workspace.
+ * @param count How many are available.
+ */
 static void sort_workspaces(workspace workspaces[MAX_WORKSPACES], int count) {
     if (!workspaces || count <= 1) return;
     qsort(workspaces, count, sizeof(workspace), compare_workspaces);
@@ -114,6 +154,17 @@ static void sort_workspaces(workspace workspaces[MAX_WORKSPACES], int count) {
 
 
 
+/**
+ * @brief Helper function to erase olf rectangle on screen.
+ *
+ * @param ctx Pass the address of an app_context strucht.
+ * @param x x-coordinate.
+ * @param y y-coordinate.
+ * @param width of the rectangle.
+ * @param height of the rectangle.
+ *
+ * IMPROVEMENT adding somehow an extra buffer map to allow transparentic bar.
+ */
 static void segment_eraser(struct app_context *ctx, int x, int y, int width, int height) {
     cairo_rectangle(ctx->render.cairo_t_shm, x, y, width, height);
     cairo_set_source_rgb(ctx->render.cairo_t_shm, ctx->render.bg_color.r,
@@ -123,7 +174,13 @@ static void segment_eraser(struct app_context *ctx, int x, int y, int width, int
 
 
 
-// 1. LINKS: Workspaces zeichnen
+/**
+ * @brief Helper function draw the left segment
+ *
+ * @param ctx Pass the address of an app_context strucht.
+ *
+ * @note uint32_t changed_segments in app_context must be set.
+ */
 static void draw_segment_left(struct app_context *ctx) {
     if (ctx->render.left_width)
         segment_eraser(ctx, 0, 0, ctx->render.left_width, ctx->wl.height);
@@ -132,7 +189,6 @@ static void draw_segment_left(struct app_context *ctx) {
     memcpy(sorted_ws, ctx->hypr.workspaces, sizeof(workspace)*ctx->hypr.workspaces_count);
     sort_workspaces(sorted_ws, ctx->hypr.workspaces_count);
 
-// 3. DER EINZIGE ZEICHEN-DURCHLAUF (Direkt messen und malen)
     int current_x = ctx->render.padding;
     int text_width = 0, text_height = 0;
     int divider_width = 0, divider_height = 0;
@@ -190,7 +246,13 @@ static void draw_segment_left(struct app_context *ctx) {
 
 
 
-// 2. MITTE: Aktive App zeichnen
+/**
+ * @brief Helper function draw the middle segment
+ *
+ * @param ctx Pass the address of an app_context strucht.
+ *
+ * @note uint32_t changed_segments in app_context must be set.
+ */
 static void draw_segment_center(struct app_context *ctx) {
     if (ctx->render.center_width) {
         segment_eraser(ctx,
@@ -231,7 +293,13 @@ static void draw_segment_center(struct app_context *ctx) {
 
 
 
-// 3. RECHTS: System-Infos zeichnen
+/**
+ * @brief Helper function draw the right segment
+ *
+ * @param ctx Pass the address of an app_context strucht.
+ *
+ * @note uint32_t changed_segments in app_context must be set.
+ */
 static void draw_segment_right(struct app_context *ctx) {
     if (ctx->render.right_width) {
         segment_eraser(ctx,

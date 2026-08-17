@@ -65,7 +65,7 @@ char* configGetValueFromName(config_file *cf, const char *name);
  * This function checks if the programm already runns. Its a one shot
  * function somewhere at programm start.
  *
- * @return 0 == this is the first instance. 1 == another instance is found
+ * @return 0 == this is the first instance. 1 == another instance is found.
  */
 int checkIfRunning();
 
