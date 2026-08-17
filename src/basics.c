@@ -243,7 +243,7 @@ unsigned int optHandling(int argc, char **argv, struct app_context *ctx) {
                 return 1;
             case 'f':
                 strncpy(ctx->render.font, optarg, MAX_APP_NAME_LENGTH - 1);
-                ctx->render.font[strlen(optarg)+1] = '\0';
+                ctx->render.font[MAX_APP_NAME_LENGTH - 1] = '\0';
                 break;
         }
     }
